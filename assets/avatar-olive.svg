@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs><clipPath id="portrait"><circle cx="48" cy="48" r="46"/></clipPath></defs>
+  <g clip-path="url(#portrait)">
+    <path fill="#e9edd8" d="M0 0h96v96H0z"/>
+    <path fill="#8b9d6e" d="M12 98v-9c0-18 15-25 36-25s36 7 36 25v9"/>
+    <path fill="#d99d73" d="M39 57h18v16c-4 7-14 7-18 0z"/>
+    <path fill="#bd7f57" d="M39 57h18v8c-5 4-13 3-18 0z"/>
+    <ellipse cx="28" cy="43" rx="5" ry="7" fill="#d99d73"/>
+    <ellipse cx="68" cy="43" rx="5" ry="7" fill="#d99d73"/>
+    <path fill="#e2ac81" d="M28 28c0-17 40-17 40 0v18c0 15-9 23-20 23s-20-8-20-23z"/>
+    <path fill="#40392e" d="M27 40c-7-18 0-29 13-29 9-7 29-2 31 12 2 6 0 12-3 17l-4-14c-8 1-11-4-13-7-4 8-13 12-20 10z"/>
+    <path d="M34 34q4-2 8 0m12 0q4-2 8 0" fill="none" stroke="#69513b" stroke-width="2" stroke-linecap="round"/>
+    <g fill="#29352d"><ellipse cx="38" cy="42" rx="2" ry="2.6"/><ellipse cx="58" cy="42" rx="2" ry="2.6"/></g>
+    <g fill="none" stroke="#35463a" stroke-width="2.5">
+      <rect x="29" y="36" width="17" height="13" rx="5"/>
+      <rect x="50" y="36" width="17" height="13" rx="5"/>
+      <path d="M46 41h4m-24-2 3 1m38 0 3-1"/>
+    </g>
+    <path d="M48 46l-2 6h4" fill="none" stroke="#bd7f57" stroke-width="2" stroke-linecap="round"/>
+    <path d="M41 57q7 6 14 0" fill="none" stroke="#955e47" stroke-width="2.5" stroke-linecap="round"/>
+    <path fill="none" stroke="#dce4be" stroke-width="3" d="M33 75q15 15 30 0"/>
+  </g>
+</svg>

@@ -13,7 +13,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       textContent: '', value: '', hidden: false, disabled: false, dataset: {}, attrs: {}, listeners: {},
-      tagName: id === 'playerInput' ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
+      tagName: id === 'playerInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
       setAttribute(name, value) { this.attrs[name] = value; },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       focus() { focused = id; },
@@ -210,6 +210,89 @@ test('asks for a nonblank name; Enter starts and names never become HTML', () =>
   assert.equal(g.element('playerName').textContent, '<b>Sam</b> Fox');
   assert.equal(g.element('playerEntry').hidden, true);
   assert.equal(g.storage.get('snake-club-player-v1'), '<b>Sam</b> Fox');
+});
+
+test('three avatars unlock after naming, appear during play and survive pause, restart and reload', () => {
+  const g = load({ player: '' });
+  assert.equal(g.element('avatarPicker').disabled, true);
+  assert.equal(g.element('playerAvatar').hidden, true);
+  assert.equal(g.element('avatar-mint').checked, true);
+  g.element('playerInput').value = '   ';
+  g.element('playerInput').listeners.input();
+  assert.equal(g.element('avatarPicker').disabled, true);
+  g.element('playerInput').value = 'Sam';
+  g.element('playerInput').listeners.input();
+  assert.equal(g.element('avatarPicker').disabled, false);
+  for (const id of ['mint', 'peach', 'olive']) {
+    for (const other of ['mint', 'peach', 'olive']) g.element(`avatar-${other}`).checked = other === id;
+    g.element(`avatar-${id}`).listeners.change();
+    g.click('playButton');
+    assert.equal(g.state(), 'playing');
+    assert.equal(g.element('playerAvatar').hidden, false);
+    assert.equal(g.element('playerAvatar').dataset.avatar, id);
+    assert.match(g.element('playerAvatar').attrs.alt, /human face avatar/);
+    assert.equal(g.element('playerAvatar').attrs.src, `assets/avatar-${id}.svg`);
+    assert.equal(g.storage.get('snake-club-avatar-v1'), id);
+    g.click('pauseButton');
+    assert.equal(g.element('playerEntry').hidden, true);
+    g.click('playButton');
+    g.click('restartButton');
+    assert.equal(g.element('playerAvatar').dataset.avatar, id);
+    const next = load({ storage: g.storage });
+    assert.equal(next.element(`avatar-${id}`).checked, true);
+    assert.equal(next.element('playerAvatar').dataset.avatar, id);
+    assert.equal(next.element('avatarPicker').disabled, false);
+    g.engine.snake = [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }, { x: 3, y: 4 }];
+    for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+    assert.equal(g.state(), 'over');
+    assert.equal(g.element('playerEntry').hidden, false);
+  }
+});
+
+test('avatar keyboard controls are not game controls; Enter starts with the selection', () => {
+  const g = load();
+  g.element('avatar-mint').checked = false;
+  const radio = g.element('avatar-peach');
+  radio.checked = true;
+  radio.listeners.change();
+  g.key('ArrowRight', { target: radio });
+  g.key(' ', { target: radio });
+  assert.equal(g.state(), 'ready');
+  assert.deepEqual(g.engine.turns, []);
+  radio.listeners.keydown({ key: 'Enter', preventDefault() {} });
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('playerAvatar').dataset.avatar, 'peach');
+  assert.match(g.element('announcer').textContent, /Peach avatar/);
+});
+
+test('invalid saved avatars default safely and blocked storage still allows a choice', () => {
+  for (const value of ['unknown', '__proto__', 'constructor', '<script>', '']) {
+    const g = load({ storage: new Map([['snake-club-avatar-v1', value]]) });
+    assert.equal(g.element('avatar-mint').checked, true);
+    g.click('playButton');
+    assert.equal(g.element('playerAvatar').dataset.avatar, 'mint');
+  }
+  const g = load({ blocked: true });
+  g.element('avatar-olive').checked = true;
+  g.element('avatar-olive').listeners.change();
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('playerAvatar').dataset.avatar, 'olive');
+});
+
+test('avatar markup uses three labeled native radios with one default choice', () => {
+  const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
+  assert.equal((html.match(/type="radio" name="avatar"/g) || []).length, 3);
+  assert.equal((html.match(/name="avatar"[^>]*checked/g) || []).length, 1);
+  assert.match(html, /<legend>Choose your avatar<\/legend>/);
+  const portraits = new Set();
+  for (const id of ['mint', 'peach', 'olive']) {
+    assert.ok(html.includes(`src="assets/avatar-${id}.svg" data-avatar="${id}" alt=""`));
+    const svg = readFileSync(join(__dirname, '..', 'assets', `avatar-${id}.svg`), 'utf8');
+    assert.match(svg, /viewBox="0 0 96 96"/);
+    portraits.add(svg);
+  }
+  assert.equal(portraits.size, 3);
 });
 
 test('champion name persists, ties keep the first champion, a higher score replaces it', () => {

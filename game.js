@@ -6,6 +6,9 @@
   const engine = new SnakeGame();
   const storageKey = 'snake-club-record-v2';
   const playerKey = 'snake-club-player-v1';
+  const avatarKey = 'snake-club-avatar-v1';
+  const avatars = { mint: 'Mint', peach: 'Peach', olive: 'Olive' };
+  let playerAvatar = 'mint';
   const cleanName = (value) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let state = 'ready';
@@ -63,10 +66,31 @@
       bestName = best ? 'Unknown player' : '';
     }
     playerName = cleanName(localStorage.getItem(playerKey));
+    const savedAvatar = localStorage.getItem(avatarKey);
+    if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
     localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName }));
   } catch { storageUnavailable(); }
 
   $('playerInput').value = playerName;
+  for (const id of Object.keys(avatars)) {
+    const radio = $(`avatar-${id}`);
+    radio.checked = id === playerAvatar;
+    radio.addEventListener('change', () => {
+      if (radio.checked) playerAvatar = id;
+    });
+    radio.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
+    });
+  }
+  function updateAvatarPicker() {
+    const hasName = Boolean(cleanName($('playerInput').value));
+    $('avatarPicker').disabled = !hasName;
+    $('avatarHint').textContent = hasName
+      ? 'Pick a face, then press Let’s play.'
+      : 'Enter your name to unlock the avatars.';
+  }
+  $('playerInput').addEventListener('input', updateAvatarPicker);
+  updateAvatarPicker();
 
   const announce = (message) => { $('announcer').textContent = message; };
   const format = (value) => String(value).padStart(2, '0');
@@ -74,6 +98,10 @@
     $('score').textContent = format(engine.score);
     $('best').textContent = format(best);
     $('playerName').textContent = playerName || '—';
+    $('playerAvatar').hidden = !playerName;
+    $('playerAvatar').dataset.avatar = playerAvatar;
+    $('playerAvatar').setAttribute('src', `assets/avatar-${playerAvatar}.svg`);
+    $('playerAvatar').setAttribute('alt', `${avatars[playerAvatar]} human face avatar`);
     $('bestName').textContent = bestName || 'No record yet';
     $('preyName').textContent = engine.foodType || 'None';
     const speed = `${(160 / engine.interval).toFixed(1)}×`;
@@ -241,9 +269,13 @@
     playerName = name;
     $('playerInput').value = name;
     $('playerInput').setAttribute('aria-invalid', 'false');
-    $('nameHint').textContent = 'Enter a name. Music starts when you play.';
+    $('nameHint').textContent = 'Enter a name, then choose your avatar. Music starts when you play.';
+    updateAvatarPicker();
     if (canSave) {
-      try { localStorage.setItem(playerKey, playerName); } catch { storageUnavailable(); }
+      try {
+        localStorage.setItem(playerKey, playerName);
+        localStorage.setItem(avatarKey, playerAvatar);
+      } catch { storageUnavailable(); }
     }
     void unlockAudio();
     engine.reset();
@@ -254,7 +286,7 @@
     setState('playing');
     $('footerMessage').textContent = 'Find your rhythm. Feed your ambition.';
     canvas.focus({ preventScroll: true });
-    announce(`${playerName}, game started. Use arrow keys or W A S D to steer. Catch the ${engine.foodType}.`);
+    announce(`${playerName}, game started with the ${avatars[playerAvatar]} avatar. Use arrow keys or W A S D to steer. Catch the ${engine.foodType}.`);
   }
 
   function pause() {

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — One more bite.</title>
-  <link rel="stylesheet" href="style.css?v=classic7">
+  <link rel="stylesheet" href="style.css?v=human9">
   <script src="snake-engine.js?v=levels3" defer></script>
-  <script src="game.js?v=chomp6" defer></script>
+  <script src="game.js?v=human8" defer></script>
 </head>
 <body>
   <main class="app">
@@ -38,7 +38,7 @@
         <div class="score-group best-group"><span class="score-label">BEST SCORE</span><span class="score-value" id="best">00</span></div>
       </div>
 
-      <div class="player-strip"><span>PLAYING <strong id="playerName">—</strong></span><span>CHAMPION <strong id="bestName">No record yet</strong></span><span>PREY <strong id="preyName">Rat</strong></span></div>
+      <div class="player-strip"><span class="player-identity">PLAYING <img class="avatar-image player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong></span><span>CHAMPION <strong id="bestName">No record yet</strong></span><span>PREY <strong id="preyName">Rat</strong></span></div>
       <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you">
         <div class="friend-crowd" aria-hidden="true">
           <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
@@ -57,7 +57,16 @@
             <div class="player-entry" id="playerEntry">
               <label for="playerInput">Who’s playing?</label>
               <input id="playerInput" name="player" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" aria-describedby="nameHint" required>
-              <span id="nameHint">Enter a name. Music starts when you play.</span>
+              <span id="nameHint">Enter a name, then choose your avatar. Music starts when you play.</span>
+              <fieldset class="avatar-picker" id="avatarPicker" aria-describedby="avatarHint" disabled>
+                <legend>Choose your avatar</legend>
+                <div class="avatar-options">
+                  <label class="avatar-option"><input id="avatar-mint" type="radio" name="avatar" value="mint" checked><span class="avatar-card"><img class="avatar-image" src="assets/avatar-mint.svg" data-avatar="mint" alt=""><span>Mint</span></span></label>
+                  <label class="avatar-option"><input id="avatar-peach" type="radio" name="avatar" value="peach"><span class="avatar-card"><img class="avatar-image" src="assets/avatar-peach.svg" data-avatar="peach" alt=""><span>Peach</span></span></label>
+                  <label class="avatar-option"><input id="avatar-olive" type="radio" name="avatar" value="olive"><span class="avatar-card"><img class="avatar-image" src="assets/avatar-olive.svg" data-avatar="olive" alt=""><span>Olive</span></span></label>
+                </div>
+              </fieldset>
+              <span id="avatarHint">Enter your name to unlock the avatars.</span>
             </div>
             <button class="play-button" id="playButton" type="button"><span id="playLabel">LET’S PLAY</span><span aria-hidden="true">↗</span></button>
             <span class="space-hint" id="spaceHint">or press space to start</span>

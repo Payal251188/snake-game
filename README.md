@@ -19,7 +19,7 @@ python3 -m http.server 5173
 Visit **http://localhost:5173**.
 
 - Steer with **arrow keys** or **W/A/S/D**. On touchscreens, swipe on the board or use the direction buttons.
-- Enter your name, then click **LET’S PLAY** (or press **Enter**).
+- Enter your name, choose one of three human face avatars (**Mint**, **Peach**, or **Olive**), then click **LET’S PLAY** (or press **Enter**). Your avatar appears beside your name during play and is remembered in this browser. Use **Tab** and arrow keys to choose an avatar with the keyboard.
 - Catch a **rat**, **rabbit**, or **frog** to grow and score. Prey changes after every catch. The catches table tracks each animal and your level. Every set of **10 rats + 10 rabbits + 10 frogs** raises your level, adding 20% of base speed (level 1: 1.0×, level 2: 1.2×, level 3: 1.4×). Counts and level reset each round.
 - Three snake friends above the board clap after every catch. Reduced-motion preferences show a static celebration instead.
 - The player snake has a shaded, tapered body, olive saddle markings, fine scales, a shaped head, slit pupils, and a forked flicking tongue.
