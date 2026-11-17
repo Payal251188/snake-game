@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#101e25">
+  <title>Snake Club — One more bite.</title>
+  <link rel="stylesheet" href="style.css?v=friends4">
+  <script src="snake-engine.js?v=levels3" defer></script>
+  <script src="game.js?v=chomp6" defer></script>
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <a class="brand" href="./" aria-label="Snake Club home"><span class="brand-icon" aria-hidden="true">S</span>SNAKE<span>CLUB</span></a>
+      <span class="edition">THE ARCADE COLLECTION <b>№ 002</b></span>
+      <button class="sound-button" id="soundButton" type="button" aria-pressed="true" aria-label="Mute music and sound">♪ <span id="soundLabel">MUSIC READY</span></button>
+    </header>
+
+    <audio id="music" src="assets/snake-groove.mp3" preload="auto" loop playsinline></audio>
+    <audio id="chomp" src="assets/chomp.wav" preload="auto" playsinline></audio>
+    <div class="audio-controls" role="group" aria-label="Audio controls">
+      <button id="testSoundButton" type="button" aria-pressed="false">♪ Test sound</button>
+      <button id="testChompButton" type="button">Test chomp</button>
+      <label for="volumeInput">Volume <input id="volumeInput" type="range" min="0" max="1" step="0.05" value="0.75"></label>
+      <span id="audioStatus" role="status">Music starts with Play, or try Test sound.</span>
+    </div>
+
+    <section class="intro" aria-labelledby="pageTitle">
+      <div><div class="eyebrow"><span></span> SMALL GAME. BIG APPETITE.</div><h1 id="pageTitle">One more <em>bite.</em></h1><p>A familiar classic. A growing challenge. How far can you go?</p></div>
+      <div class="intro-note"><span class="orbit" aria-hidden="true">↗</span><span>Start small.<br>Stay hungry.</span></div>
+    </section>
+
+    <section class="game-shell" aria-label="Snake arcade">
+      <div class="scoreboard">
+        <div class="score-group"><span class="score-label"><i class="dot"></i> YOUR SCORE</span><span class="score-value" id="score">00</span></div>
+        <div class="match-label"><i class="dot"></i><span id="matchStatus">READY TO GROW</span></div>
+        <div class="score-group best-group"><span class="score-label">BEST SCORE</span><span class="score-value" id="best">00</span></div>
+      </div>
+
+      <div class="player-strip"><span>PLAYING <strong id="playerName">—</strong></span><span>CHAMPION <strong id="bestName">No record yet</strong></span><span>PREY <strong id="preyName">Rat</strong></span></div>
+      <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you">
+        <div class="friend-crowd" aria-hidden="true">
+          <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+          <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+          <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+        </div>
+        <span id="friendMessage">Your snake friends are rooting for you!</span>
+      </div>
+      <div class="board-wrap" id="boardWrap">
+        <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Edges wrap to the opposite side; avoid your own body. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
+        <div class="overlay" id="overlay">
+          <div class="overlay-content">
+            <span class="overlay-tag" id="overlayTag">A CLASSIC WITH AN APPETITE</span>
+            <h2 id="overlayTitle">Small snake. Big plans.</h2>
+            <p id="overlayText">Eat. Grow. Repeat.<br>Just don’t bite off your own tail.</p>
+            <div class="player-entry" id="playerEntry">
+              <label for="playerInput">Who’s playing?</label>
+              <input id="playerInput" name="player" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" aria-describedby="nameHint" required>
+              <span id="nameHint">Enter a name. Music starts when you play.</span>
+            </div>
+            <button class="play-button" id="playButton" type="button"><span id="playLabel">LET’S PLAY</span><span aria-hidden="true">↗</span></button>
+            <span class="space-hint" id="spaceHint">or press space to start</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="game-footer">
+        <span class="speed-label">PACE <strong id="pace">1.0×</strong></span>
+        <span class="footer-message" id="footerMessage">Find your rhythm. Feed your ambition.</span>
+        <div class="game-actions"><button id="pauseButton" type="button" disabled>Ⅱ PAUSE</button><span class="divider"></span><button id="restartButton" type="button" aria-label="Start a new game">↻ RESTART</button></div>
+      </div>
+    </section>
+
+    <section class="hunt-stats" aria-labelledby="huntTitle">
+      <div class="hunt-heading"><h2 id="huntTitle">This round’s catches</h2><span>LEVEL <strong id="level">1</strong> · SPEED <strong id="levelSpeed">1.0×</strong></span></div>
+      <table>
+        <caption id="levelHint">Next level: eat 10 of each animal. Each level adds 20% of base speed.</caption>
+        <thead><tr><th scope="col">Animal</th><th scope="col">Eaten</th><th scope="col">Next level target</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Rat</th><td id="ratCount">0</td><td id="ratTarget">10</td></tr>
+          <tr><th scope="row">Rabbit</th><td id="rabbitCount">0</td><td id="rabbitTarget">10</td></tr>
+          <tr><th scope="row">Frog</th><td id="frogCount">0</td><td id="frogTarget">10</td></tr>
+        </tbody>
+        <tfoot><tr><th scope="row">Total eaten</th><td id="totalEaten">0</td><td>Per round</td></tr></tfoot>
+      </table>
+    </section>
+
+    <div class="touch-controls" role="group" aria-label="Direction controls">
+      <button type="button" data-direction="up" aria-label="Move up">↑</button>
+      <button type="button" data-direction="left" aria-label="Move left">←</button>
+      <span aria-hidden="true">STEER</span>
+      <button type="button" data-direction="right" aria-label="Move right">→</button>
+      <button type="button" data-direction="down" aria-label="Move down">↓</button>
+    </div>
+
+    <section class="below-board" aria-label="How to play">
+      <div class="control"><span class="control-icon" aria-hidden="true">↗</span><div><strong>MAKE YOUR MOVE</strong><span><kbd>↑</kbd> <kbd>←</kbd> <kbd>↓</kbd> <kbd>→</kbd> or <kbd>W A S D</kbd> <span class="control-or">/</span> swipe to steer</span></div></div>
+      <div class="control"><span class="control-icon" aria-hidden="true">Ⅱ</span><div><strong>TAKE A BREATHER</strong><span><kbd>SPACE</kbd> to pause <span class="control-or">/</span> <kbd>R</kbd> to restart</span></div></div>
+      <div class="saved-note"><span aria-hidden="true">✓</span><span id="storageNote">Best score + player name.<br>Saved in this browser.</span></div>
+    </section>
+    <footer class="page-footer"><span>LESS SCROLLING. MORE PLAYING.</span><span>STAY HUNGRY. <span aria-hidden="true">✳</span></span></footer>
+    <div class="sr-only" id="announcer" aria-live="polite" aria-atomic="true"></div>
+  </main>
+</body>
+</html>
