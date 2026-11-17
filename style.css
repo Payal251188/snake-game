@@ -1,10 +1,10 @@
 :root {
-  --paper: #f4f2e9;
+  --paper: #f28b82;
   --ink: #1c2b30;
   --mint: #b5f4cc;
   --orange: #f8b487;
   --court: #101e25;
-  --line: #dcded3;
+  --line: #d96d65;
   font-family: 'Segoe UI', system-ui, sans-serif;
   color: var(--ink);
   background: var(--paper);
