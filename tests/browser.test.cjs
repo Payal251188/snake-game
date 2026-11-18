@@ -13,7 +13,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       textContent: '', value: '', hidden: false, disabled: false, dataset: {}, attrs: {}, listeners: {},
-      tagName: id === 'playerInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
+      tagName: id === 'modeSelect' ? 'SELECT' : id === 'playerInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
       setAttribute(name, value) { this.attrs[name] = value; },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       focus() { focused = id; },
@@ -71,7 +71,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   const sandbox = {
     setInterval: (callback) => { const id = ++timerId; timers.set(id, callback); return id; },
     clearInterval: (id) => timers.delete(id),
-    SnakeGame: class extends SnakeGame { constructor() { super({ random: () => 0 }); engine = this; } },
+    SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0 }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => ({ matches: true }), devicePixelRatio: 1,
       addEventListener: (name, callback) => { events[name] = callback; } },
@@ -93,6 +93,97 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     state: () => element('.game-shell').dataset.state,
   };
 }
+
+test('mode picker previews, remembers and locks the selected mode during a round', () => {
+  const g = load();
+  assert.equal(g.element('modeSelect').value, 'obstacles');
+  assert.ok(g.engine.obstacles.some(({ type }) => type === 'barrier'));
+  assert.ok(g.engine.obstacles.some(({ type }) => type === 'rock'));
+  assert.equal(g.element('.game-shell').dataset.mode, 'obstacles');
+  assert.match(g.element('overlayText').textContent, /walls/);
+  assert.equal(g.element('modeSelect').disabled, false);
+  g.element('modeSelect').value = 'maze';
+  g.element('modeSelect').listeners.change();
+  assert.equal(g.engine.mode, 'maze');
+  assert.ok(g.engine.obstacles.length > 0);
+  assert.match(g.element('modeHint').textContent, /maze walls/);
+  assert.match(g.element('board').attrs['aria-label'], /Maze mode/);
+  assert.equal(g.storage.get('snake-club-mode-v1'), 'maze');
+  assert.equal(load({ storage: g.storage }).element('modeSelect').value, 'maze');
+  // Native select keys must not trigger game shortcuts.
+  g.key(' ', { target: g.element('modeSelect') });
+  g.key('r', { target: g.element('modeSelect') });
+  assert.equal(g.state(), 'ready');
+  g.click('playButton');
+  assert.equal(g.engine.mode, 'maze');
+  assert.equal(g.element('modeSelect').disabled, true);
+  assert.match(g.element('announcer').textContent, /Maze mode/);
+  g.click('pauseButton');
+  assert.equal(g.element('modeSelect').disabled, true);
+  g.element('modeSelect').value = 'classic';
+  g.element('modeSelect').listeners.change();
+  assert.equal(g.engine.mode, 'maze');
+  g.click('playButton');
+  g.click('restartButton');
+  assert.equal(g.engine.mode, 'maze');
+  g.engine.snake = [{ x: 1, y: 5 }]; g.engine.direction = 'left';
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.state(), 'over');
+  assert.match(g.element('overlayText').textContent, /hit a wall/);
+  assert.match(g.element('announcer').textContent, /hit a wall/);
+  assert.equal(g.element('modeSelect').disabled, false);
+  g.element('modeSelect').value = 'classic';
+  g.element('modeSelect').listeners.change();
+  assert.deepEqual(g.engine.obstacles, []);
+  g.click('playButton');
+  assert.equal(g.engine.mode, 'classic');
+});
+
+test('an explicitly saved Classic choice remains available without obstacles', () => {
+  const g = load({ storage: new Map([['snake-club-mode-v1', 'classic']]) });
+  assert.equal(g.element('modeSelect').value, 'classic');
+  assert.equal(g.element('.game-shell').dataset.mode, 'classic');
+  assert.deepEqual(g.engine.obstacles, []);
+  assert.match(g.element('overlayText').textContent, /Edges wrap/);
+  g.element('modeSelect').value = 'obstacles';
+  g.element('modeSelect').listeners.change();
+  assert.ok(g.engine.obstacles.length > 0);
+  assert.equal(g.element('.game-shell').dataset.mode, 'obstacles');
+});
+
+test('obstacle hits show the cause and replay restores a safe layout', () => {
+  for (const type of ['barrier', 'rock']) {
+    const g = load();
+    g.element('modeSelect').value = 'obstacles';
+    g.element('modeSelect').listeners.change();
+    g.click('playButton');
+    const target = g.engine.obstacles.find((cell) => cell.type === type);
+    g.engine.snake = [{ x: target.x - 1, y: target.y }];
+    for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+    assert.equal(g.state(), 'over');
+    assert.ok(g.element('overlayText').textContent.includes(`hit a ${type}`));
+    assert.equal(g.element('music').paused, true);
+    g.click('playButton');
+    assert.equal(g.state(), 'playing');
+    assert.equal(g.engine.collision, null);
+    assert.equal(g.engine.mode, 'obstacles');
+    assert.equal(g.engine.snake.length, 3);
+  }
+});
+
+test('invalid saved modes default to obstacles and blocked storage still permits selection', () => {
+  for (const mode of ['unknown', '__proto__', 'constructor', '']) {
+    const g = load({ storage: new Map([['snake-club-mode-v1', mode]]) });
+    assert.equal(g.engine.mode, 'obstacles');
+    assert.equal(g.element('modeSelect').value, 'obstacles');
+  }
+  const g = load({ blocked: true });
+  g.element('modeSelect').value = 'obstacles';
+  g.element('modeSelect').listeners.change();
+  g.click('playButton');
+  assert.equal(g.engine.mode, 'obstacles');
+  assert.equal(g.state(), 'playing');
+});
 
 function eat(g) {
   g.engine.food = { x: g.engine.snake[0].x + 1, y: g.engine.snake[0].y };

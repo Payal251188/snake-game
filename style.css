@@ -14,7 +14,7 @@
 body { margin: 0; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; cursor: pointer; }
-input:focus-visible, button:focus-visible, a:focus-visible, canvas:focus-visible { outline: 3px solid #dc8855; outline-offset: 4px; }
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible, canvas:focus-visible { outline: 3px solid #dc8855; outline-offset: 4px; }
 button:disabled { cursor: default; opacity: .35; }
 .app { max-width: 1152px; margin: auto; padding: 0 40px; }
 .header { height: 80px; display: flex; align-items: center; border-bottom: 1px solid var(--line); gap: 25px; }
@@ -93,10 +93,18 @@ h1 em { font-style: normal; color: #638b70; }
 @keyframes friend-bounce { 50% { transform: translateY(-5px) rotate(4deg); } }
 @keyframes friend-clap { from { transform: scale(.85) rotate(-12deg); } to { transform: scale(1.15) rotate(12deg); } }
 @media (max-width: 480px) { .snake-friends { gap: 8px; padding-inline: 8px; } .friend-crowd { gap: 0; } .snake-fan, .snake-fan img { width: 48px; } .fan-hands { left: 12px; } #friendMessage { font-size: 11px; } }
+.mode-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 20px; background: #14232a; border-bottom: 1px solid #ffffff16; }
+.mode-controls label { font-size: 10px; font-weight: 700; letter-spacing: 1.4px; color: var(--mint); }
+.mode-controls select { max-width: 100%; min-height: 40px; padding: 8px; border: 1px solid #6f9787; border-radius: 5px; background: #20383d; color: #f2f4eb; font: inherit; font-size: 12px; cursor: pointer; }
+.mode-controls select:disabled { opacity: .7; cursor: default; }
+#modeHint { flex: 1 1 220px; font-size: 12px; line-height: 1.5; color: #e3c6a7; }
+.mode-help { flex-basis: 100%; font-size: 10px; color: #adc1c0; }
 .board-wrap { position: relative; height: clamp(320px, 48vh, 510px); background: var(--court); overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #101e259e; backdrop-filter: blur(3px); text-align: center; }
 .overlay[hidden] { display: none; }
+.game-shell[data-mode='obstacles'] .overlay, .game-shell[data-mode='maze'] .overlay { background: #101e2533; backdrop-filter: none; }
+.game-shell[data-mode='obstacles'] .overlay-content, .game-shell[data-mode='maze'] .overlay-content { max-width: 420px; max-height: calc(100% - 24px); margin: 12px; border: 1px solid #6f9787; border-radius: 12px; background: #101e25f2; }
 .overlay-content { padding: 24px; width: 100%; max-height: 100%; overflow-y: auto; }
 .overlay:has(.player-entry:not([hidden])) { align-items: flex-start; }
 .overlay:has(.player-entry:not([hidden])) .overlay-content { padding: 16px; }

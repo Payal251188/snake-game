@@ -3,6 +3,114 @@ const assert = require('node:assert/strict');
 const { SnakeGame } = require('../snake-engine.js');
 
 const game = () => new SnakeGame({ random: () => 0 });
+const key = ({ x, y }) => `${x},${y}`;
+
+test('obstacle layouts have connected open cells, safe spawns and safe food at all supported sizes', () => {
+  for (const mode of ['obstacles', 'maze']) {
+    for (let columns = 6; columns <= 30; columns++) {
+      for (let rows = 6; rows <= 25; rows++) {
+        const g = new SnakeGame({ columns, rows, mode, random: () => 0 });
+        const blocked = new Set(g.obstacles.map(key));
+        assert.equal(blocked.size, g.obstacles.length);
+        assert.ok(g.obstacles.every(({ x, y }) => x >= 0 && x < columns && y >= 0 && y < rows));
+        assert.ok(g.snake.every((cell) => !blocked.has(key(cell))));
+        assert.ok(!blocked.has(key(g.food)));
+        const visited = new Set([key(g.snake[0])]);
+        const queue = [g.snake[0]];
+        for (let i = 0; i < queue.length; i++) {
+          const { x, y } = queue[i];
+          for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+            const next = { x: x + dx, y: y + dy };
+            if (next.x < 0 || next.y < 0 || next.x >= columns || next.y >= rows || blocked.has(key(next)) || visited.has(key(next))) continue;
+            visited.add(key(next)); queue.push(next);
+          }
+        }
+        assert.equal(visited.size + blocked.size, columns * rows, `${mode} ${columns}x${rows} must have no sealed pockets`);
+        assert.equal(g.tick(), 'moved', `${mode} ${columns}x${rows} needs a safe first move`);
+        for (const random of [() => 0, () => 0.5, () => 1]) {
+          g.random = random;
+          g.placeFood();
+          assert.ok(!blocked.has(key(g.food)));
+          assert.ok(!g.snake.some((cell) => key(cell) === key(g.food)));
+        }
+      }
+    }
+  }
+});
+
+test('walls, barriers and rocks end play without moving, growing or awarding points', () => {
+  for (const mode of ['obstacles', 'maze']) {
+    const layout = new SnakeGame({ mode });
+    const types = new Set(layout.obstacles.map((cell) => cell.type));
+    assert.ok(types.has('wall'));
+    if (mode === 'obstacles') assert.deepEqual([...types].sort(), ['barrier', 'rock', 'wall']);
+    for (const type of types) {
+      const g = new SnakeGame({ mode });
+      const target = g.obstacles.find((cell) => cell.type === type && cell.x > 0);
+      g.snake = [{ x: target.x - 1, y: target.y }];
+      g.food = { x: target.x, y: target.y }; // Even a stale food position cannot override collision.
+      const before = JSON.stringify(g.snake);
+      assert.equal(g.tick(), 'lost');
+      assert.equal(g.collision, type);
+      assert.equal(g.status, 'over');
+      assert.equal(g.score, 0);
+      assert.equal(JSON.stringify(g.snake), before);
+      assert.equal(g.tick(), 'idle');
+      assert.equal(g.turn('up'), false);
+    }
+  }
+});
+
+test('all four edges are solid in obstacle and maze modes', () => {
+  for (const mode of ['obstacles', 'maze']) {
+    for (const [direction, head] of [
+      ['left', { x: 1, y: 5 }], ['right', { x: 22, y: 5 }],
+      ['up', { x: 5, y: 1 }], ['down', { x: 5, y: 18 }],
+    ]) {
+      const g = new SnakeGame({ mode });
+      g.snake = [head]; g.direction = direction;
+      assert.equal(g.tick(), 'lost');
+      assert.equal(g.collision, 'wall');
+      assert.deepEqual(g.snake[0], head);
+    }
+  }
+});
+
+test('filling all open cells wins without counting walls as empty cells', () => {
+  for (const mode of ['obstacles', 'maze']) {
+    const g = new SnakeGame({ columns: 6, rows: 6, mode });
+    const blocked = new Set(g.obstacles.map(key));
+    g.snake = [{ x: 3, y: 3 }];
+    for (let y = 0; y < g.rows; y++) {
+      for (let x = 0; x < g.columns; x++) {
+        if (!blocked.has(`${x},${y}`) && !(y === 3 && (x === 3 || x === 4))) g.snake.push({ x, y });
+      }
+    }
+    g.food = { x: 4, y: 3 };
+    assert.equal(g.tick(), 'won');
+    assert.equal(g.food, null);
+    assert.equal(g.snake.length + blocked.size, 36);
+  }
+});
+
+test('reset preserves the selected mode, rebuilds hazards, and switching to classic clears them', () => {
+  const g = new SnakeGame({ mode: 'maze' });
+  const layout = JSON.stringify(g.obstacles);
+  g.collision = 'wall'; g.status = 'over'; g.score = 10;
+  g.reset();
+  assert.equal(g.mode, 'maze');
+  assert.equal(JSON.stringify(g.obstacles), layout);
+  assert.equal(g.collision, null);
+  assert.equal(g.score, 0);
+  g.reset({ mode: 'obstacles' });
+  assert.ok(g.obstacles.some(({ type }) => type === 'rock'));
+  g.reset({ mode: 'classic' });
+  assert.deepEqual(g.obstacles, []);
+  assert.equal(g.wraps, true);
+  assert.throws(() => new SnakeGame({ mode: 'unknown' }), RangeError);
+  assert.throws(() => g.reset({ mode: 'unknown' }), RangeError);
+  assert.equal(g.mode, 'classic');
+});
 
 test('starts with three segments, zero score and food outside the snake', () => {
   const g = game();

@@ -3,10 +3,16 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame();
+  const engine = new SnakeGame({ mode: 'obstacles' });
   const storageKey = 'snake-club-record-v2';
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
+  const modeKey = 'snake-club-mode-v1';
+  const modes = {
+    classic: { name: 'Classic', hint: 'Edges wrap. Avoid your own body.' },
+    obstacles: { name: 'Obstacles', hint: 'Solid edges. Dodge stone walls, striped barriers, and rocks.' },
+    maze: { name: 'Maze', hint: 'Solid edges. Wind through the gaps between the maze walls.' },
+  };
   const avatars = { mint: 'Mint', peach: 'Peach', olive: 'Olive' };
   let playerAvatar = 'mint';
   const cleanName = (value) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
@@ -68,6 +74,8 @@
     playerName = cleanName(localStorage.getItem(playerKey));
     const savedAvatar = localStorage.getItem(avatarKey);
     if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
+    const savedMode = localStorage.getItem(modeKey);
+    if (Object.hasOwn(modes, savedMode)) engine.reset({ mode: savedMode });
     localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName }));
   } catch { storageUnavailable(); }
 
@@ -91,6 +99,32 @@
   }
   $('playerInput').addEventListener('input', updateAvatarPicker);
   updateAvatarPicker();
+
+  function updateMode() {
+    $('modeSelect').value = engine.mode;
+    document.querySelector('.game-shell').dataset.mode = engine.mode;
+    $('modeHint').textContent = modes[engine.mode].hint;
+    if (state === 'ready') {
+      $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
+      $('overlayTitle').textContent = engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
+      $('overlayText').textContent = `${modes[engine.mode].hint}\nChoose Obstacles, Maze, or Classic above, then play.`;
+    }
+    canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
+  }
+  $('modeSelect').addEventListener('change', () => {
+    if (state === 'playing' || state === 'paused') return;
+    const mode = $('modeSelect').value;
+    if (!Object.hasOwn(modes, mode)) return;
+    engine.reset({ mode });
+    if (canSave) {
+      try { localStorage.setItem(modeKey, mode); } catch { storageUnavailable(); }
+    }
+    updateMode();
+    updateScores();
+    draw(0);
+    announce(`${modes[mode].name} mode selected. ${modes[mode].hint}`);
+  });
+  updateMode();
 
   const announce = (message) => { $('announcer').textContent = message; };
   const format = (value) => String(value).padStart(2, '0');
@@ -128,6 +162,7 @@
     $('playerEntry').hidden = state === 'playing' || state === 'paused';
     previewSound = false;
     syncMusic();
+    $('modeSelect').disabled = state === 'playing' || state === 'paused';
     $('pauseButton').disabled = !['playing', 'paused'].includes(state);
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
@@ -279,14 +314,15 @@
     }
     void unlockAudio();
     engine.reset();
+    updateMode();
     resetCheer();
     startingBest = best;
     elapsed = -450; // A brief runway to choose your first direction.
     updateScores();
     setState('playing');
-    $('footerMessage').textContent = 'Find your rhythm. Feed your ambition.';
+    $('footerMessage').textContent = modes[engine.mode].hint;
     canvas.focus({ preventScroll: true });
-    announce(`${playerName}, game started with the ${avatars[playerAvatar]} avatar. Use arrow keys or W A S D to steer. Catch the ${engine.foodType}.`);
+    announce(`${playerName}, game started with the ${avatars[playerAvatar]} avatar. ${modes[engine.mode].name} mode. ${modes[engine.mode].hint} Use arrow keys or W A S D to steer. Catch the ${engine.foodType}.`);
   }
 
   function pause() {
@@ -327,11 +363,12 @@
       setState(won ? 'won' : 'over');
       if (won) tone(880, 0.25);
       else playGameOver();
+      const lossReason = { wall: 'You hit a wall.', barrier: 'You hit a barrier.', rock: 'You hit a rock.', body: 'You ran into your own body.' }[engine.collision] || 'Game over.';
       showOverlay(won ? 'EVERY LAST BITE' : engine.score > startingBest ? 'A NEW CLUB RECORD' : 'EVERY END IS A NEW BEGINNING',
         won ? 'You outgrew the board.' : 'One more bite?',
-        `${playerName}, you scored ${engine.score}. Best: ${best} by ${bestName || '—'}.\n${won ? 'A perfectly full plate. Well played.' : 'Same player or a new challenger?'}`, 
+        `${playerName}, you scored ${engine.score}. Best: ${best} by ${bestName || '—'}.\n${won ? 'A perfectly full plate. Well played.' : `${lossReason} Try another route!`}`,
         'PLAY AGAIN', 'or press space for another round');
-      announce(`${won ? 'You won!' : 'Game over.'} ${playerName} scored ${engine.score}. Best score ${best} by ${bestName || 'no one yet'}.`);
+      announce(`${won ? 'You won!' : `Game over. ${lossReason}`} ${playerName} scored ${engine.score}. Best score ${best} by ${bestName || 'no one yet'}.`);
     }
   }
 
@@ -493,6 +530,37 @@
     ctx.strokeStyle = '#7ba59555';
     ctx.strokeRect(left, top, boardWidth, boardHeight);
 
+    for (const obstacle of engine.obstacles) {
+      const x = left + obstacle.x * cell;
+      const y = top + obstacle.y * cell;
+      const inset = cell * 0.08;
+      if (obstacle.type === 'rock') {
+        ctx.fillStyle = '#b6a08b';
+        ctx.beginPath();
+        ctx.moveTo(x + cell * 0.25, y + inset);
+        ctx.lineTo(x + cell * 0.75, y + cell * 0.12);
+        ctx.lineTo(x + cell * 0.94, y + cell * 0.6);
+        ctx.lineTo(x + cell * 0.7, y + cell * 0.91);
+        ctx.lineTo(x + cell * 0.18, y + cell * 0.84);
+        ctx.lineTo(x + inset, y + cell * 0.4);
+        ctx.closePath(); ctx.fill();
+        roundedRect(x + cell * 0.3, y + cell * 0.25, cell * 0.35, cell * 0.12, inset, '#d7c4ac');
+      } else {
+        const barrier = obstacle.type === 'barrier';
+        roundedRect(x + inset, y + inset, cell - inset * 2, cell - inset * 2, inset, barrier ? '#e5ad68' : '#738d92');
+        ctx.strokeStyle = barrier ? '#64452c' : '#3c555e';
+        ctx.lineWidth = Math.max(1, cell * (barrier ? 0.12 : 0.05));
+        ctx.beginPath();
+        if (barrier) {
+          ctx.moveTo(x + cell * 0.2, y + cell * 0.55); ctx.lineTo(x + cell * 0.55, y + cell * 0.2);
+          ctx.moveTo(x + cell * 0.45, y + cell * 0.8); ctx.lineTo(x + cell * 0.8, y + cell * 0.45);
+        } else {
+          ctx.moveTo(x + inset, y + cell * 0.5); ctx.lineTo(x + cell - inset, y + cell * 0.5);
+          ctx.moveTo(x + cell * 0.5, y + inset); ctx.lineTo(x + cell * 0.5, y + cell * 0.5);
+        }
+        ctx.stroke();
+      }
+    }
     if (engine.food) drawPrey(left + (engine.food.x + 0.5) * cell, top + (engine.food.y + 0.5) * cell, cell);
     drawSnake(left, top, cell, time);
   }

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — One more bite.</title>
-  <link rel="stylesheet" href="style.css?v=human9">
-  <script src="snake-engine.js?v=levels3" defer></script>
-  <script src="game.js?v=human8" defer></script>
+  <link rel="stylesheet" href="style.css?v=maze2">
+  <script src="snake-engine.js?v=maze2" defer></script>
+  <script src="game.js?v=maze2" defer></script>
 </head>
 <body>
   <main class="app">
@@ -31,7 +31,7 @@
       <div class="intro-note"><span class="orbit" aria-hidden="true">↗</span><span>Start small.<br>Stay hungry.</span></div>
     </section>
 
-    <section class="game-shell" aria-label="Snake arcade">
+    <section class="game-shell" data-mode="obstacles" aria-label="Snake arcade">
       <div class="scoreboard">
         <div class="score-group"><span class="score-label"><i class="dot"></i> YOUR SCORE</span><span class="score-value" id="score">00</span></div>
         <div class="match-label"><i class="dot"></i><span id="matchStatus">READY TO GROW</span></div>
@@ -47,13 +47,23 @@
         </div>
         <span id="friendMessage">Your snake friends are rooting for you!</span>
       </div>
+      <div class="mode-controls">
+        <label for="modeSelect">CHOOSE YOUR CHALLENGE</label>
+        <select id="modeSelect" aria-describedby="modeHint modeHelp">
+          <option value="obstacles" selected>Obstacles · walls &amp; barriers</option>
+          <option value="maze">Maze · winding passages</option>
+          <option value="classic">Classic · no obstacles</option>
+        </select>
+        <span id="modeHint">Solid edges. Dodge stone walls, striped barriers, and rocks.</span>
+        <span class="mode-help" id="modeHelp">Obstacles are on by default. Try Maze for winding passages, or Classic for no obstacles. Choose before a round.</span>
+      </div>
       <div class="board-wrap" id="boardWrap">
-        <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Edges wrap to the opposite side; avoid your own body. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
+        <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Avoid your body, solid walls, barriers, and rocks. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay">
           <div class="overlay-content">
             <span class="overlay-tag" id="overlayTag">A CLASSIC WITH AN APPETITE</span>
             <h2 id="overlayTitle">Small snake. Big plans.</h2>
-            <p id="overlayText">Eat. Grow. Repeat.<br>Just don’t bite off your own tail.</p>
+            <p id="overlayText">Pick your mode above. Eat. Grow. Explore.<br>Avoid your tail and any walls or obstacles.</p>
             <div class="player-entry" id="playerEntry">
               <label for="playerInput">Who’s playing?</label>
               <input id="playerInput" name="player" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" aria-describedby="nameHint" required>
