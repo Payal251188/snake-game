@@ -113,6 +113,11 @@ h1 em { font-style: normal; color: #638b70; }
 .controls-hint { flex: 1 1 calc(100% - 330px); font-size: 12px; line-height: 1.5; color: var(--mint); }
 .touch-area { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; }
 .touch-area .player-two-controls button { border-color: #bf906c; background: #f5e2d2; color: #704024; }
+.golden-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 20px; background: #2b2b20; border-bottom: 1px solid #ffda6533; color: #e4cc85; font-size: 11px; line-height: 1.5; }
+.golden-notice > span:first-child { font-size: 20px; color: #ffda65; }
+.golden-notice strong { font-size: 9px; letter-spacing: 1px; }
+#goldenStatus[data-active='true'] { color: #fff3bd; font-weight: 700; }
+.golden-catches th { color: #795913; }
 .board-wrap { position: relative; height: clamp(320px, 48vh, 510px); background: var(--court); overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #101e259e; backdrop-filter: blur(3px); text-align: center; }

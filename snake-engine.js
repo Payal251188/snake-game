@@ -26,6 +26,9 @@
       this.playerCount = playerCount;
       this.winner = null;
       this.lastEater = null;
+      this.lastCatches = [];
+      this.goldenFood = null;
+      this.goldenTicks = 0;
       const x = Math.floor(this.columns / 2);
       const y = playerCount === 2 ? Math.floor(this.rows / 3) : Math.floor(this.rows / 2);
       this.players = Array.from({ length: playerCount }, (_, index) => {
@@ -34,12 +37,13 @@
         return {
           snake: Array.from({ length: 3 }, (__, i) => ({ x: headX + (index === 0 ? -i : i), y: headY })),
           direction: index === 0 ? 'right' : 'left', turns: [], score: 0,
-          eaten: { rat: 0, rabbit: 0, frog: 0 }, collision: null,
+          eaten: { rat: 0, rabbit: 0, frog: 0 }, goldenEaten: 0, collision: null,
         };
       });
       this.status = 'playing';
       this.obstacles = this.createObstacles();
       this.placeFood();
+      this.scheduleGoldenFood();
     }
 
     // Preserve the solo API for callers that address player one directly.
@@ -59,6 +63,9 @@
     get totalEaten() {
       return Object.fromEntries(animals.map((animal) => [animal, this.players.reduce((sum, player) => sum + player.eaten[animal], 0)]));
     }
+    get preyCaught() { return Object.values(this.totalEaten).reduce((sum, count) => sum + count, 0); }
+    get goldenCaught() { return this.players.reduce((sum, player) => sum + player.goldenEaten, 0); }
+    get totalCatches() { return this.preyCaught + this.goldenCaught; }
     get wraps() { return this.mode === 'classic'; }
 
     createObstacles() {
@@ -101,7 +108,7 @@
     get level() { return 1 + Math.floor(Math.min(...Object.values(this.totalEaten)) / 10); }
     get speedMultiplier() { return 1 + (this.level - 1) * 0.2; }
     get interval() { return Math.max(40, 160 / this.speedMultiplier); }
-    get foodType() { return this.food ? animals[this.totalScore % 3] : null; }
+    get foodType() { return this.food ? animals[this.preyCaught % 3] : null; }
 
     turn(direction, playerIndex = 0) {
       const player = this.players[playerIndex];
@@ -114,20 +121,51 @@
       return true;
     }
 
-    placeFood() {
-      const occupied = new Set([...this.players.flatMap((player) => player.snake), ...this.obstacles].map(({ x, y }) => `${x},${y}`));
+    emptyCells(reserved = []) {
+      const occupied = new Set([...this.players.flatMap((player) => player.snake), ...this.obstacles, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
       const empty = [];
       for (let y = 0; y < this.rows; y++) {
         for (let x = 0; x < this.columns; x++) {
           if (!occupied.has(`${x},${y}`)) empty.push({ x, y });
         }
       }
-      this.food = empty.length ? empty[Math.min(empty.length - 1, Math.max(0, Math.floor(this.random() * empty.length)))] : null;
+      return empty;
+    }
+
+    pickCell(empty) {
+      return empty.length ? empty[Math.min(empty.length - 1, Math.max(0, Math.floor(this.random() * empty.length)))] : null;
+    }
+
+    placeFood() {
+      this.food = this.pickCell(this.emptyCells([this.goldenFood]));
+    }
+
+    scheduleGoldenFood() {
+      // A random 25–55 successful moves between bonuses; game pauses freeze the timer.
+      this.goldenDelay = 25 + Math.min(30, Math.max(0, Math.floor(this.random() * 31)));
+    }
+
+    updateGoldenFood() {
+      if (this.goldenFood) {
+        this.goldenTicks--;
+        if (this.goldenTicks <= 0) {
+          this.goldenFood = null;
+          this.goldenTicks = 0;
+          this.scheduleGoldenFood();
+          // The golden cell may have been the last cell available for normal prey.
+          if (!this.food) this.placeFood();
+        }
+      } else if (--this.goldenDelay <= 0) {
+        this.goldenFood = this.pickCell(this.emptyCells([this.food]));
+        this.goldenTicks = this.goldenFood ? 50 : 0;
+        if (!this.goldenFood) this.scheduleGoldenFood();
+      }
     }
 
     tick() {
       if (this.status !== 'playing') return 'idle';
       this.lastEater = null;
+      this.lastCatches = [];
       const foodType = this.foodType;
       // Predict all moves before resolving collisions: neither player has first-move priority.
       const moves = this.players.map((player) => {
@@ -138,8 +176,9 @@
           head.x = (head.x + this.columns) % this.columns;
           head.y = (head.y + this.rows) % this.rows;
         }
-        const eats = this.food !== null && same(head, this.food);
-        return { head, eats, body: eats ? player.snake : player.snake.slice(0, -1) };
+        const eatsPrey = this.food !== null && same(head, this.food);
+        const eatsGolden = this.goldenFood !== null && same(head, this.goldenFood);
+        return { head, eatsPrey, eatsGolden, body: eatsPrey || eatsGolden ? player.snake : player.snake.slice(0, -1) };
       });
       const headClash = moves.length === 2 && (same(moves[0].head, moves[1].head)
         || (same(moves[0].head, this.players[1].snake[0]) && same(moves[1].head, this.players[0].snake[0])));
@@ -160,15 +199,26 @@
       }
       this.players.forEach((player, index) => {
         player.snake.unshift(moves[index].head);
-        if (moves[index].eats) {
-          player.eaten[foodType]++;
-          player.score++;
+        if (moves[index].eatsPrey || moves[index].eatsGolden) {
+          const golden = moves[index].eatsGolden;
+          const points = golden ? 5 : 1;
+          if (golden) player.goldenEaten++;
+          else player.eaten[foodType]++;
+          player.score += points;
           this.lastEater = index;
+          this.lastCatches.push({ playerIndex: index, type: golden ? 'golden' : foodType, points });
         } else player.snake.pop();
       });
-      if (this.lastEater !== null) {
-        this.placeFood();
-        if (!this.food) {
+      const caughtGolden = moves.some((move) => move.eatsGolden);
+      if (caughtGolden) {
+        this.goldenFood = null;
+        this.goldenTicks = 0;
+        this.scheduleGoldenFood();
+      }
+      if (moves.some((move) => move.eatsPrey)) this.placeFood();
+      if (!caughtGolden) this.updateGoldenFood();
+      if (this.lastCatches.length) {
+        if (!this.food && !this.goldenFood) {
           this.status = 'won';
           this.winner = this.playerCount === 1 || this.players[0].score > this.players[1].score ? 0
             : this.players[1].score > this.players[0].score ? 1 : null;

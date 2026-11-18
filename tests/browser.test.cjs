@@ -100,6 +100,65 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   };
 }
 
+test('golden food credits five points to its eater, updates records and keeps animal counts separate', () => {
+  const g = load({ playerCount: null });
+  g.element('opponentInput').value = 'Jamie'; g.click('playButton');
+  const head = g.engine.players[1].snake[0];
+  g.engine.goldenFood = { x: head.x - 1, y: head.y }; g.engine.goldenTicks = 50;
+  const prey = g.engine.foodType;
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.element('score').textContent, '00');
+  assert.equal(g.element('opponentScore').textContent, '05');
+  assert.equal(g.element('best').textContent, '05');
+  assert.equal(g.element('bestName').textContent, 'Jamie');
+  assert.equal(g.element('goldenCount').textContent, '1');
+  assert.equal(g.element('totalEaten').textContent, '1');
+  assert.equal(g.element('ratCount').textContent, '0');
+  assert.equal(g.engine.foodType, prey);
+  assert.match(g.element('friendMessage').textContent, /Golden catch! \+5 for Jamie/);
+  assert.match(g.element('announcer').textContent, /Golden food! \+5 bonus points/);
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v2')), { score: 5, name: 'Jamie' });
+  g.click('restartButton');
+  assert.equal(g.element('goldenCount').textContent, '0');
+  assert.equal(g.engine.goldenFood, null);
+});
+
+test('simultaneous normal and golden catches display both scores and announce both players', () => {
+  const g = load({ playerCount: null });
+  g.element('opponentInput').value = 'Jamie'; g.click('playButton');
+  const [p1, p2] = g.engine.players;
+  g.engine.food = { x: p1.snake[0].x + 1, y: p1.snake[0].y };
+  g.engine.goldenFood = { x: p2.snake[0].x - 1, y: p2.snake[0].y }; g.engine.goldenTicks = 50;
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.element('score').textContent, '01');
+  assert.equal(g.element('opponentScore').textContent, '05');
+  assert.equal(g.element('totalEaten').textContent, '2');
+  assert.equal(g.element('ratCount').textContent, '1');
+  assert.equal(g.element('goldenCount').textContent, '1');
+  assert.equal(g.element('bestName').textContent, 'Jamie');
+  assert.match(g.element('announcer').textContent, /Alex: Score 1/);
+  assert.match(g.element('announcer').textContent, /Jamie: Golden food/);
+});
+
+test('golden appearance and expiry are announced; pause freezes its lifetime and HUD', () => {
+  const g = load(); g.click('playButton'); g.engine.goldenDelay = 1;
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.element('goldenStatus').dataset.active, 'true');
+  assert.match(g.element('goldenStatus').textContent, /On the board! \+5 points/);
+  assert.match(g.element('announcer').textContent, /Golden food appeared/);
+  g.click('pauseButton');
+  const lifetime = g.engine.goldenTicks;
+  const hud = g.element('goldenStatus').textContent;
+  g.frame(10000);
+  assert.equal(g.engine.goldenTicks, lifetime);
+  assert.equal(g.element('goldenStatus').textContent, hud);
+  g.engine.goldenTicks = 1;
+  g.click('playButton'); g.frame(11000); g.frame(11200);
+  assert.equal(g.engine.goldenFood, null);
+  assert.equal(g.element('goldenStatus').dataset.active, 'false');
+  assert.match(g.element('announcer').textContent, /Golden food expired/);
+});
+
 test('production defaults to two players, shows two identities, controls and individual scores', () => {
   const g = load({ playerCount: null });
   assert.equal(g.engine.playerCount, 2);

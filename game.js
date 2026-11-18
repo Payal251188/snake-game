@@ -58,7 +58,9 @@
   function cheer() {
     cheerRemaining = 1200;
     $('snakeFriends').dataset.cheering = 'true';
-    $('friendMessage').textContent = `Nice catch, ${nameFor(engine.lastEater ?? 0)}! 👏`;
+    const names = engine.lastCatches.map(({ playerIndex }) => nameFor(playerIndex)).join(' & ');
+    const golden = engine.lastCatches.some(({ type }) => type === 'golden');
+    $('friendMessage').textContent = golden ? `Golden catch! +5 for ${names}! ⭐` : `Nice catch, ${names}! 👏`;
   }
 
   function storageUnavailable() {
@@ -164,6 +166,12 @@
 
   const announce = (message) => { $('announcer').textContent = message; };
   const format = (value) => String(value).padStart(2, '0');
+  function updateGoldenStatus() {
+    $('goldenStatus').dataset.active = String(Boolean(engine.goldenFood));
+    $('goldenStatus').textContent = engine.goldenFood
+      ? `On the board! +5 points · ${Math.ceil(engine.goldenTicks * engine.interval / 1000)}s left`
+      : 'Appears randomly during play · catch it for +5 points';
+  }
   function updateScores() {
     $('score').textContent = format(engine.score);
     $('opponentScore').textContent = format(engine.players[1]?.score || 0);
@@ -180,7 +188,9 @@
     $('pace').textContent = speed;
     $('level').textContent = String(engine.level);
     $('levelSpeed').textContent = speed;
-    $('totalEaten').textContent = String(engine.totalScore);
+    $('totalEaten').textContent = String(engine.totalCatches);
+    $('goldenCount').textContent = String(engine.goldenCaught);
+    updateGoldenStatus();
     const catches = engine.totalEaten;
     for (const animal of ['rat', 'rabbit', 'frog']) {
       $(`${animal}Count`).textContent = String(catches[animal]);
@@ -396,25 +406,33 @@
 
   function advance() {
     const previousLevel = engine.level;
+    const hadGoldenFood = Boolean(engine.goldenFood);
     const result = engine.tick();
+    const caughtGolden = engine.lastCatches.some(({ type }) => type === 'golden');
+    const bonusNotice = !hadGoldenFood && engine.goldenFood ? 'Golden food appeared! Catch the gold star for 5 bonus points.'
+      : hadGoldenFood && !engine.goldenFood && !caughtGolden && result !== 'lost' ? 'Golden food expired. Watch for the next one!' : '';
+    updateGoldenStatus();
     if (result === 'ate' || result === 'won') {
-      const eater = engine.lastEater;
-      const score = engine.players[eater].score;
-      if (score > best) {
-        best = score;
-        bestName = nameFor(eater);
-        if (canSave) {
-          try { localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName })); }
-          catch { storageUnavailable(); }
+      for (const { playerIndex } of engine.lastCatches) {
+        const score = engine.players[playerIndex].score;
+        if (score > best) {
+          best = score;
+          bestName = nameFor(playerIndex);
+          if (canSave) {
+            try { localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName })); }
+            catch { storageUnavailable(); }
+          }
         }
       }
       updateScores();
       cheer();
       playChomp();
+      if (caughtGolden) tone(1046, 0.18, { end: 1568, volume: 0.12 });
       const levelUp = engine.level > previousLevel;
-      $('footerMessage').textContent = levelUp ? `Level ${engine.level}! Speed increased for both snakes.` : `${nameFor(eater)} caught another bite!`;
-      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${nameFor(eater)}: Score ${score}. Next prey: ${engine.foodType || 'none'}.`);
-    }
+      const catches = engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)} ${type === 'golden' ? 'caught golden food' : 'caught another bite'}! +${points}`);
+      $('footerMessage').textContent = `${levelUp ? `Level ${engine.level}! ` : ''}${catches.join(' · ')}`;
+      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)}: ${type === 'golden' ? `Golden food! +${points} bonus points. ` : ''}Score ${engine.players[playerIndex].score}.`).join(' ')} Next prey: ${engine.foodType || 'none'}. ${bonusNotice}`);
+    } else if (bonusNotice) announce(bonusNotice);
     if (result === 'lost' || result === 'won') {
       const won = result === 'won';
       setState(won ? 'won' : 'over');
@@ -491,6 +509,31 @@
       }
       ellipse(0, 0.025, 0.045, 0.035, '#c98685');
     }
+    ctx.restore();
+  }
+
+  function drawGoldenFood(x, y, cell, time) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(cell, cell);
+    const pulse = reducedMotion ? 1 : 1 + Math.sin(time / 200) * 0.08;
+    ellipse(0, 0, 0.49 * pulse, 0.49 * pulse, '#ffda6533');
+    ctx.fillStyle = '#ffda65';
+    ctx.strokeStyle = '#bd7b16';
+    ctx.lineWidth = 0.04;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const angle = -Math.PI / 2 + i * Math.PI / 5;
+      const radius = (i % 2 === 0 ? 0.4 : 0.2) * pulse;
+      if (i === 0) ctx.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      else ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ellipse(-0.08, -0.1, 0.07, 0.05, '#fff8d5', -0.5);
+    ctx.font = 'bold 0.34px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffe9a3';
+    ctx.fillText('+5', 0, -0.55);
     ctx.restore();
   }
 
@@ -631,6 +674,7 @@
       }
     }
     if (engine.food) drawPrey(left + (engine.food.x + 0.5) * cell, top + (engine.food.y + 0.5) * cell, cell);
+    if (engine.goldenFood) drawGoldenFood(left + (engine.goldenFood.x + 0.5) * cell, top + (engine.goldenFood.y + 0.5) * cell, cell, time);
     engine.players.forEach((player, index) => {
       drawSnake(left, top, cell, time, player, index);
       if (engine.playerCount === 2) {

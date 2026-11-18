@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — One more bite.</title>
-  <link rel="stylesheet" href="style.css?v=duel1">
-  <script src="snake-engine.js?v=duel1" defer></script>
-  <script src="game.js?v=duel1" defer></script>
+  <link rel="stylesheet" href="style.css?v=gold1">
+  <script src="snake-engine.js?v=gold1" defer></script>
+  <script src="game.js?v=gold1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -64,6 +64,7 @@
         <span id="modeHint">Solid edges. Dodge stone walls, striped barriers, and rocks.</span>
         <span class="mode-help" id="modeHelp">Obstacles are on by default. Try Maze for winding passages, or Classic for no obstacles. Choose before a round.</span>
       </div>
+      <div class="golden-notice"><span aria-hidden="true">★</span><strong>GOLDEN FOOD</strong><span id="goldenStatus" data-active="false">Appears randomly during play · catch it for +5 points</span></div>
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Avoid your body, solid walls, barriers, and rocks. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay">
@@ -112,6 +113,7 @@
           <tr><th scope="row">Rat</th><td id="ratCount">0</td><td id="ratTarget">10</td></tr>
           <tr><th scope="row">Rabbit</th><td id="rabbitCount">0</td><td id="rabbitTarget">10</td></tr>
           <tr><th scope="row">Frog</th><td id="frogCount">0</td><td id="frogTarget">10</td></tr>
+          <tr class="golden-catches"><th scope="row">★ Golden food (+5 points)</th><td id="goldenCount">0</td><td>Bonus only</td></tr>
         </tbody>
         <tfoot><tr><th scope="row">Total eaten</th><td id="totalEaten">0</td><td>Per round</td></tr></tfoot>
       </table>
