@@ -3,11 +3,13 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame({ mode: 'obstacles' });
+  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2 });
   const storageKey = 'snake-club-record-v2';
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
   const modeKey = 'snake-club-mode-v1';
+  const playersKey = 'snake-club-players-v1';
+  const opponentKey = 'snake-club-player-two-v1';
   const modes = {
     classic: { name: 'Classic', hint: 'Edges wrap. Avoid your own body.' },
     obstacles: { name: 'Obstacles', hint: 'Solid edges. Dodge stone walls, striped barriers, and rocks.' },
@@ -21,6 +23,11 @@
   let best = 0;
   let bestName = '';
   let playerName = '';
+  let opponentName = 'Player 2';
+  const nameFor = (index) => index === 0 ? playerName || 'Player 1' : opponentName;
+  const steeringHint = () => engine.playerCount === 2
+    ? 'Player 1: W A S D. Player 2: arrow keys. Avoid both snakes. Last snake standing wins; simultaneous crashes draw.'
+    : 'Use arrow keys or W A S D to steer.';
   let startingBest = 0;
   let canSave = true;
   let lastTime = null;
@@ -51,7 +58,7 @@
   function cheer() {
     cheerRemaining = 1200;
     $('snakeFriends').dataset.cheering = 'true';
-    $('friendMessage').textContent = `Nice catch, ${playerName}! 👏`;
+    $('friendMessage').textContent = `Nice catch, ${nameFor(engine.lastEater ?? 0)}! 👏`;
   }
 
   function storageUnavailable() {
@@ -72,6 +79,9 @@
       bestName = best ? 'Unknown player' : '';
     }
     playerName = cleanName(localStorage.getItem(playerKey));
+    opponentName = cleanName(localStorage.getItem(opponentKey)) || 'Player 2';
+    const savedPlayers = localStorage.getItem(playersKey);
+    if (savedPlayers === '1' || savedPlayers === '2') engine.reset({ playerCount: Number(savedPlayers) });
     const savedAvatar = localStorage.getItem(avatarKey);
     if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
     const savedMode = localStorage.getItem(modeKey);
@@ -80,6 +90,7 @@
   } catch { storageUnavailable(); }
 
   $('playerInput').value = playerName;
+  $('opponentInput').value = opponentName;
   for (const id of Object.keys(avatars)) {
     const radio = $(`avatar-${id}`);
     radio.checked = id === playerAvatar;
@@ -103,13 +114,25 @@
   function updateMode() {
     $('modeSelect').value = engine.mode;
     document.querySelector('.game-shell').dataset.mode = engine.mode;
+    document.querySelector('.game-shell').dataset.players = String(engine.playerCount);
+    $('playersSelect').value = String(engine.playerCount);
+    const dual = engine.playerCount === 2;
+    $('opponentEntry').hidden = !dual;
+    $('opponentInput').required = dual;
+    $('opponentScoreGroup').hidden = !dual;
+    $('opponentIdentity').hidden = !dual;
+    $('playerTwoControls').hidden = !dual;
+    $('playerOneControlsLabel').textContent = dual ? 'P1 · WASD' : 'STEER';
+    $('scoreLabel').textContent = dual ? 'P1 SCORE' : 'YOUR SCORE';
+    $('playerInputLabel').textContent = dual ? 'Player 1 · green snake · WASD' : 'Who’s playing?';
+    $('controlsHint').textContent = steeringHint();
     $('modeHint').textContent = modes[engine.mode].hint;
     if (state === 'ready') {
       $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
-      $('overlayTitle').textContent = engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
-      $('overlayText').textContent = `${modes[engine.mode].hint}\nChoose Obstacles, Maze, or Classic above, then play.`;
+      $('overlayTitle').textContent = dual ? 'Two snakes. One arena.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
+      $('overlayText').textContent = `${modes[engine.mode].hint}\n${dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic above, then play.'}`;
     }
-    canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
+    canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
   $('modeSelect').addEventListener('change', () => {
     if (state === 'playing' || state === 'paused') return;
@@ -124,12 +147,27 @@
     draw(0);
     announce(`${modes[mode].name} mode selected. ${modes[mode].hint}`);
   });
+  $('playersSelect').addEventListener('change', () => {
+    if (state === 'playing' || state === 'paused') return;
+    const playerCount = Number($('playersSelect').value);
+    if (![1, 2].includes(playerCount)) return;
+    engine.reset({ playerCount });
+    if (canSave) {
+      try { localStorage.setItem(playersKey, String(playerCount)); } catch { storageUnavailable(); }
+    }
+    updateMode();
+    updateScores();
+    draw(0);
+    announce(`${playerCount === 2 ? 'Two-player versus' : 'Solo'} selected. ${steeringHint()}`);
+  });
   updateMode();
 
   const announce = (message) => { $('announcer').textContent = message; };
   const format = (value) => String(value).padStart(2, '0');
   function updateScores() {
     $('score').textContent = format(engine.score);
+    $('opponentScore').textContent = format(engine.players[1]?.score || 0);
+    $('opponentName').textContent = opponentName;
     $('best').textContent = format(best);
     $('playerName').textContent = playerName || '—';
     $('playerAvatar').hidden = !playerName;
@@ -142,9 +180,10 @@
     $('pace').textContent = speed;
     $('level').textContent = String(engine.level);
     $('levelSpeed').textContent = speed;
-    $('totalEaten').textContent = String(engine.score);
+    $('totalEaten').textContent = String(engine.totalScore);
+    const catches = engine.totalEaten;
     for (const animal of ['rat', 'rabbit', 'frog']) {
-      $(`${animal}Count`).textContent = String(engine.eaten[animal]);
+      $(`${animal}Count`).textContent = String(catches[animal]);
       $(`${animal}Target`).textContent = String(engine.level * 10);
     }
     $('levelHint').textContent = `Next level: reach ${engine.level * 10} of each animal. Each level adds 20% of base speed.`;
@@ -152,7 +191,7 @@
 
   function setState(next) {
     state = next;
-    if (state === 'paused' || state === 'over') resetCheer();
+    if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
     document.querySelector('.game-shell').dataset.state = state;
     $('matchStatus').textContent = {
       ready: 'READY TO GROW', playing: 'ON THE MOVE', paused: 'TAKING A BREATHER',
@@ -163,6 +202,7 @@
     previewSound = false;
     syncMusic();
     $('modeSelect').disabled = state === 'playing' || state === 'paused';
+    $('playersSelect').disabled = state === 'playing' || state === 'paused';
     $('pauseButton').disabled = !['playing', 'paused'].includes(state);
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
@@ -301,6 +341,20 @@
       announce('Who is playing? Please enter your name.');
       return;
     }
+    const secondName = cleanName($('opponentInput').value);
+    if (engine.playerCount === 2 && !secondName) {
+      if (state === 'playing') pause();
+      $('playerEntry').hidden = false;
+      $('opponentInput').setAttribute('aria-invalid', 'true');
+      $('opponentHint').textContent = 'Please enter a name for Player 2.';
+      $('opponentInput').focus({ preventScroll: true });
+      announce('Please enter a name for Player 2.');
+      return;
+    }
+    if (secondName) opponentName = secondName;
+    $('opponentInput').value = opponentName;
+    $('opponentInput').setAttribute('aria-invalid', 'false');
+    $('opponentHint').textContent = 'Orange snake · arrow keys. Both players share this keyboard.';
     playerName = name;
     $('playerInput').value = name;
     $('playerInput').setAttribute('aria-invalid', 'false');
@@ -310,6 +364,7 @@
       try {
         localStorage.setItem(playerKey, playerName);
         localStorage.setItem(avatarKey, playerAvatar);
+        localStorage.setItem(opponentKey, opponentName);
       } catch { storageUnavailable(); }
     }
     void unlockAudio();
@@ -322,7 +377,7 @@
     setState('playing');
     $('footerMessage').textContent = modes[engine.mode].hint;
     canvas.focus({ preventScroll: true });
-    announce(`${playerName}, game started with the ${avatars[playerAvatar]} avatar. ${modes[engine.mode].name} mode. ${modes[engine.mode].hint} Use arrow keys or W A S D to steer. Catch the ${engine.foodType}.`);
+    announce(`${playerName}, game started with the ${avatars[playerAvatar]} avatar. ${modes[engine.mode].name} mode. ${modes[engine.mode].hint} ${steeringHint()} ${engine.playerCount === 2 ? `${opponentName} is Player 2. ` : ''}Catch the ${engine.foodType}.`);
   }
 
   function pause() {
@@ -343,9 +398,11 @@
     const previousLevel = engine.level;
     const result = engine.tick();
     if (result === 'ate' || result === 'won') {
-      if (engine.score > best) {
-        best = engine.score;
-        bestName = playerName;
+      const eater = engine.lastEater;
+      const score = engine.players[eater].score;
+      if (score > best) {
+        best = score;
+        bestName = nameFor(eater);
         if (canSave) {
           try { localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName })); }
           catch { storageUnavailable(); }
@@ -355,20 +412,31 @@
       cheer();
       playChomp();
       const levelUp = engine.level > previousLevel;
-      $('footerMessage').textContent = levelUp ? `Level ${engine.level}! Speed increased.` : best > startingBest ? 'A new club record. Stay hungry.' : 'Another catch toward your next level.';
-      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}Score ${engine.score}. Next prey: ${engine.foodType || 'none'}.`);
+      $('footerMessage').textContent = levelUp ? `Level ${engine.level}! Speed increased for both snakes.` : `${nameFor(eater)} caught another bite!`;
+      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${nameFor(eater)}: Score ${score}. Next prey: ${engine.foodType || 'none'}.`);
     }
     if (result === 'lost' || result === 'won') {
       const won = result === 'won';
       setState(won ? 'won' : 'over');
       if (won) tone(880, 0.25);
       else playGameOver();
-      const lossReason = { wall: 'You hit a wall.', barrier: 'You hit a barrier.', rock: 'You hit a rock.', body: 'You ran into your own body.' }[engine.collision] || 'Game over.';
-      showOverlay(won ? 'EVERY LAST BITE' : engine.score > startingBest ? 'A NEW CLUB RECORD' : 'EVERY END IS A NEW BEGINNING',
-        won ? 'You outgrew the board.' : 'One more bite?',
-        `${playerName}, you scored ${engine.score}. Best: ${best} by ${bestName || '—'}.\n${won ? 'A perfectly full plate. Well played.' : `${lossReason} Try another route!`}`,
-        'PLAY AGAIN', 'or press space for another round');
-      announce(`${won ? 'You won!' : `Game over. ${lossReason}`} ${playerName} scored ${engine.score}. Best score ${best} by ${bestName || 'no one yet'}.`);
+      const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a rock', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
+      if (engine.playerCount === 2) {
+        const title = engine.winner === null ? 'It’s a draw!' : `${nameFor(engine.winner)} wins!`;
+        const scores = `P1 ${playerName}: ${engine.players[0].score} · P2 ${opponentName}: ${engine.players[1].score}.`;
+        const causes = won ? 'All open cells filled. Highest score wins.' : engine.players
+          .map((player, index) => player.collision ? `${nameFor(index)} ${reasons[player.collision] || 'crashed'}.` : '')
+          .filter(Boolean).join(' ');
+        showOverlay('ROUND COMPLETE', title, `${scores}\n${causes}`, 'REMATCH', 'or press space for a rematch');
+        announce(`${title} ${scores} ${causes}`);
+      } else {
+        const lossReason = engine.collision ? `You ${reasons[engine.collision] || 'crashed'}.` : 'Game over.';
+        showOverlay(won ? 'EVERY LAST BITE' : engine.score > startingBest ? 'A NEW CLUB RECORD' : 'EVERY END IS A NEW BEGINNING',
+          won ? 'You outgrew the board.' : 'One more bite?',
+          `${playerName}, you scored ${engine.score}. Best: ${best} by ${bestName || '—'}.\n${won ? 'A perfectly full plate. Well played.' : `${lossReason} Try another route!`}`,
+          'PLAY AGAIN', 'or press space for another round');
+        announce(`${won ? 'You won!' : `Game over. ${lossReason}`} ${playerName} scored ${engine.score}. Best score ${best} by ${bestName || 'no one yet'}.`);
+      }
     }
   }
 
@@ -426,8 +494,9 @@
     ctx.restore();
   }
 
-  function drawSnake(left, top, cell, time) {
-    const points = engine.snake.map(({ x, y }) => ({ x: left + (x + 0.5) * cell, y: top + (y + 0.5) * cell }));
+  function drawSnake(left, top, cell, time, player, index) {
+    const orange = index === 1;
+    const points = player.snake.map(({ x, y }) => ({ x: left + (x + 0.5) * cell, y: top + (y + 0.5) * cell }));
     const radius = (i) => cell * (0.025 + 0.3 * Math.min(1, (points.length - 1 - i) / 3));
     ctx.lineCap = 'round';
     // Connected, tapered body rather than separate square tiles.
@@ -435,16 +504,16 @@
       const a = points[i]; const b = points[i - 1];
       // Never draw a line across the whole court when the body wraps an edge.
       if (Math.abs(a.x - b.x) > cell * 1.5 || Math.abs(a.y - b.y) > cell * 1.5) {
-        ellipse(a.x, a.y, radius(i), radius(i), '#71a65c');
-        ellipse(b.x, b.y, radius(i - 1), radius(i - 1), '#71a65c');
+        ellipse(a.x, a.y, radius(i), radius(i), orange ? '#d29052' : '#71a65c');
+        ellipse(b.x, b.y, radius(i - 1), radius(i - 1), orange ? '#d29052' : '#71a65c');
         continue;
       }
       const angle = Math.atan2(b.y - a.y, b.x - a.x);
       const nx = -Math.sin(angle); const ny = Math.cos(angle);
       const ra = radius(i); const rb = radius(i - 1);
       const skin = ctx.createLinearGradient(b.x - nx * rb, b.y - ny * rb, b.x + nx * rb, b.y + ny * rb);
-      skin.addColorStop(0, '#263d27'); skin.addColorStop(0.28, '#759250');
-      skin.addColorStop(0.52, '#a7b975'); skin.addColorStop(0.8, '#6f8947'); skin.addColorStop(1, '#334c2e');
+      skin.addColorStop(0, orange ? '#704024' : '#263d27'); skin.addColorStop(0.28, orange ? '#c87c42' : '#759250');
+      skin.addColorStop(0.52, orange ? '#ffd29a' : '#a7b975'); skin.addColorStop(0.8, orange ? '#d29052' : '#6f8947'); skin.addColorStop(1, orange ? '#754a2e' : '#334c2e');
       ctx.fillStyle = skin;
       ctx.beginPath();
       ctx.moveTo(a.x + nx * ra, a.y + ny * ra); ctx.lineTo(b.x + nx * rb, b.y + ny * rb);
@@ -479,7 +548,7 @@
     }
     const head = points[0];
     ctx.save(); ctx.translate(head.x, head.y);
-    ctx.rotate({ right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[engine.direction]);
+    ctx.rotate({ right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[player.direction]);
     ctx.scale(cell, cell);
     if (state === 'playing' && !reducedMotion && Math.sin(time / 160) > 0.6) {
       ctx.strokeStyle = '#df817b'; ctx.lineWidth = 0.035;
@@ -487,7 +556,7 @@
       ctx.moveTo(0.62, 0); ctx.lineTo(0.71, 0.07); ctx.stroke();
     }
     const headSkin = ctx.createLinearGradient(0, -0.32, 0.12, 0.32);
-    headSkin.addColorStop(0, '#405332'); headSkin.addColorStop(0.4, '#b3bd7b'); headSkin.addColorStop(1, '#6e7e46');
+    headSkin.addColorStop(0, orange ? '#99532b' : '#405332'); headSkin.addColorStop(0.4, orange ? '#ffd29a' : '#b3bd7b'); headSkin.addColorStop(1, orange ? '#d29052' : '#6e7e46');
     // Narrow neck, broad cheeks and a gently flattened snout.
     ctx.fillStyle = headSkin; ctx.strokeStyle = '#293f2b'; ctx.lineWidth = 0.025;
     ctx.beginPath(); ctx.moveTo(-0.43, -0.19);
@@ -562,7 +631,15 @@
       }
     }
     if (engine.food) drawPrey(left + (engine.food.x + 0.5) * cell, top + (engine.food.y + 0.5) * cell, cell);
-    drawSnake(left, top, cell, time);
+    engine.players.forEach((player, index) => {
+      drawSnake(left, top, cell, time, player, index);
+      if (engine.playerCount === 2) {
+        ctx.fillStyle = index === 0 ? '#b5f4cc' : '#f8b487';
+        ctx.font = `bold ${Math.max(9, cell * 0.4)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`P${index + 1}`, left + (player.snake[0].x + 0.5) * cell, top + (player.snake[0].y - 0.15) * cell);
+      }
+    });
   }
 
   function resize() {
@@ -584,7 +661,10 @@
     if (key === ' ' && event.target.closest('button')) return;
     if (directionKeys[key] || [' ', 'r', 'Escape'].includes(key)) event.preventDefault();
     if (event.repeat) return;
-    if (directionKeys[key] && state === 'playing') engine.turn(directionKeys[key]);
+    if (directionKeys[key] && state === 'playing') {
+      const playerIndex = engine.playerCount === 2 && key.startsWith('Arrow') ? 1 : 0;
+      engine.turn(directionKeys[key], playerIndex);
+    }
     if (key === ' ') { if (['ready', 'over', 'won'].includes(state)) startGame(); else pause(); }
     if (key === 'r') startGame();
     if (key === 'Escape' && state === 'playing') pause();
@@ -592,12 +672,15 @@
   $('playerInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
   });
+  $('opponentInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
+  });
   $('playButton').addEventListener('click', () => state === 'paused' ? pause() : startGame());
   $('pauseButton').addEventListener('click', pause);
   $('restartButton').addEventListener('click', startGame);
   document.querySelectorAll('[data-direction]').forEach((button) => {
     button.addEventListener('click', () => {
-      if (state === 'playing') engine.turn(button.dataset.direction);
+      if (state === 'playing') engine.turn(button.dataset.direction, Number(button.dataset.player || 0));
     });
   });
   canvas.addEventListener('pointerdown', (event) => {

@@ -45,6 +45,14 @@ h1 em { font-style: normal; color: #638b70; }
 .dot { height: 6px; width: 6px; border-radius: 50%; background: var(--mint); display: inline-block; }
 .score-value { font: 500 40px/1 ui-monospace, monospace; letter-spacing: -2px; color: var(--mint); font-variant-numeric: tabular-nums; }
 .best-group { margin-left: auto; flex-direction: row-reverse; }
+.score-group[hidden], .player-strip > span[hidden], .touch-controls[hidden], .opponent-entry[hidden] { display: none; }
+.opponent-score .score-value, .opponent-score .score-label { color: var(--orange); }
+.opponent-score .dot { background: var(--orange); }
+.game-shell[data-players='2'] .scoreboard { gap: clamp(12px, 3vw, 36px); }
+.game-shell[data-players='2'] .match-label { display: none; }
+.game-shell[data-players='2'] .best-group .score-value { font-size: 28px; }
+.game-shell[data-players='2'] .best-group { gap: 10px; }
+.player-strip .opponent-identity strong { color: var(--orange); }
 .best-group .score-value { color: var(--orange); }
 .best-group .score-label { color: #b8a89a; }
 .match-label { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; font-size: 8px; letter-spacing: 1.6px; color: #9cafaf; white-space: nowrap; }
@@ -59,7 +67,10 @@ h1 em { font-style: normal; color: #638b70; }
 .player-entry label { color: var(--mint); font-size: 13px; }
 .player-entry input { width: 100%; padding: 10px 12px; border: 1px solid #6f9787; border-radius: 5px; background: #14282f; color: #f2f4eb; font: inherit; font-size: 16px; }
 .player-entry input[aria-invalid='true'] { border-color: var(--orange); }
-.player-entry > span { font-size: 10px; color: #adc1c0; line-height: 1.4; }
+.player-entry > span, .opponent-entry > span { font-size: 10px; color: #adc1c0; line-height: 1.4; }
+.opponent-entry { display: grid; gap: 7px; margin-top: 8px; }
+.opponent-entry label { color: var(--orange); }
+.opponent-entry input { border-color: #bf906c; }
 .avatar-picker { min-width: 0; margin: 6px 0 0; padding: 0; border: 0; }
 .avatar-picker legend { color: var(--mint); font-size: 12px; margin-bottom: 8px; }
 .avatar-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -99,6 +110,9 @@ h1 em { font-style: normal; color: #638b70; }
 .mode-controls select:disabled { opacity: .7; cursor: default; }
 #modeHint { flex: 1 1 220px; font-size: 12px; line-height: 1.5; color: #e3c6a7; }
 .mode-help { flex-basis: 100%; font-size: 10px; color: #adc1c0; }
+.controls-hint { flex: 1 1 calc(100% - 330px); font-size: 12px; line-height: 1.5; color: var(--mint); }
+.touch-area { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; }
+.touch-area .player-two-controls button { border-color: #bf906c; background: #f5e2d2; color: #704024; }
 .board-wrap { position: relative; height: clamp(320px, 48vh, 510px); background: var(--court); overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #101e259e; backdrop-filter: blur(3px); text-align: center; }
@@ -165,6 +179,10 @@ kbd { font: 9px ui-monospace, monospace; display: inline-block; padding: 2px 5px
   .score-group { gap: 12px; }
   .score-label { font-size: 8px; letter-spacing: .6px; }
   .score-value { font-size: 32px; }
+  .game-shell[data-players='2'] .scoreboard { padding: 0 12px; gap: 14px; }
+  .game-shell[data-players='2'] .score-group { flex-direction: column; gap: 5px; align-items: flex-start; }
+  .game-shell[data-players='2'] .best-group { align-items: flex-end; }
+  .game-shell[data-players='2'] .best-group .score-value { font-size: 24px; }
   .player-strip { padding: 10px 16px; gap: 7px 14px; }
   .board-wrap { height: auto; min-height: 380px; aspect-ratio: 6 / 5; }
   .overlay p { line-height: 1.5; }
@@ -189,6 +207,11 @@ kbd { font: 9px ui-monospace, monospace; display: inline-block; padding: 2px 5px
   .touch-controls { display: flex; justify-content: center; gap: 12px; margin-top: 18px; }
   .touch-controls button { width: 48px; height: 48px; border: 1px solid #c6d3bf; border-radius: 8px; background: #e6ebdf; touch-action: manipulation; }
   .touch-controls > span { display: none; }
+}
+@media (max-width: 400px) {
+  .touch-controls { grid-template-columns: repeat(3, 40px); gap: 3px; }
+  .touch-controls > span { font-size: 7px; }
+  .touch-area { gap: 12px; }
 }
 @media (max-width: 360px) {
   .app { padding: 0 10px; }

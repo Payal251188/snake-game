@@ -6,14 +6,15 @@ const vm = require('node:vm');
 const { SnakeGame } = require('../snake-engine.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
-function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null } = {}) {
+// Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
+function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1 } = {}) {
   const elements = new Map();
   const noop = () => {};
   let focused;
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       textContent: '', value: '', hidden: false, disabled: false, dataset: {}, attrs: {}, listeners: {},
-      tagName: id === 'modeSelect' ? 'SELECT' : id === 'playerInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
+      tagName: id === 'modeSelect' || id === 'playersSelect' ? 'SELECT' : id === 'playerInput' || id === 'opponentInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
       setAttribute(name, value) { this.attrs[name] = value; },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       focus() { focused = id; },
@@ -37,8 +38,13 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   });
   const events = {};
   const documentEvents = {};
+  const touchButtons = [0, 1].flatMap((playerIndex) => ['up', 'down', 'left', 'right'].map((direction) => {
+    const button = element(`p${playerIndex}-${direction}Button`);
+    button.dataset = { direction, player: String(playerIndex) };
+    return button;
+  }));
   const document = {
-    getElementById: element, querySelector: element, querySelectorAll: () => [], hidden: false,
+    getElementById: element, querySelector: element, querySelectorAll: () => touchButtons, hidden: false,
     addEventListener: (name, callback) => { documentEvents[name] = callback; },
   };
   let engine;
@@ -71,7 +77,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   const sandbox = {
     setInterval: (callback) => { const id = ++timerId; timers.set(id, callback); return id; },
     clearInterval: (id) => timers.delete(id),
-    SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0 }); engine = this; } },
+    SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => ({ matches: true }), devicePixelRatio: 1,
       addEventListener: (name, callback) => { events[name] = callback; } },
@@ -93,6 +99,126 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     state: () => element('.game-shell').dataset.state,
   };
 }
+
+test('production defaults to two players, shows two identities, controls and individual scores', () => {
+  const g = load({ playerCount: null });
+  assert.equal(g.engine.playerCount, 2);
+  assert.equal(g.element('playersSelect').value, '2');
+  assert.equal(g.element('.game-shell').dataset.players, '2');
+  assert.equal(g.element('opponentEntry').hidden, false);
+  assert.equal(g.element('opponentScoreGroup').hidden, false);
+  assert.equal(g.element('opponentInput').required, true);
+  assert.equal(g.element('playerTwoControls').hidden, false);
+  assert.match(g.element('overlayTitle').textContent, /Two snakes/);
+  assert.match(g.element('controlsHint').textContent, /Player 2: arrow keys/);
+  g.element('opponentInput').value = 'Jamie';
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('opponentName').textContent, 'Jamie');
+  assert.equal(g.element('score').textContent, '00');
+  assert.equal(g.element('opponentScore').textContent, '00');
+  assert.equal(g.element('playersSelect').disabled, true);
+  assert.equal(g.storage.get('snake-club-player-two-v1'), 'Jamie');
+});
+
+test('WASD, arrows, and both touch pads steer separate snakes; pause blocks turns', () => {
+  const g = load({ playerCount: null });
+  g.click('playButton');
+  g.key('W'); g.key('ArrowDown');
+  assert.deepEqual(g.engine.players[0].turns, ['up']);
+  assert.deepEqual(g.engine.players[1].turns, ['down']);
+  g.click('p0-leftButton'); g.click('p1-rightButton');
+  assert.deepEqual(g.engine.players[0].turns, ['up', 'left']);
+  assert.deepEqual(g.engine.players[1].turns, ['down', 'right']);
+  g.click('pauseButton');
+  assert.equal(g.element('playersSelect').disabled, true);
+  g.engine.players.forEach((player) => { player.turns = []; });
+  g.key('w'); g.key('ArrowDown'); g.click('p0-upButton'); g.click('p1-downButton');
+  assert.ok(g.engine.players.every((player) => player.turns.length === 0));
+  const before = JSON.stringify(g.engine.players);
+  g.frame(3000); assert.equal(JSON.stringify(g.engine.players), before);
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+  g.click('restartButton');
+  assert.ok(g.engine.players.every((player) => player.score === 0 && player.snake.length === 3));
+});
+
+test('Player 2 catches update only their score, champion, cheer and combined catch table', () => {
+  const g = load({ playerCount: null });
+  g.element('opponentInput').value = '<b>Jamie</b>';
+  g.click('playButton');
+  const head = g.engine.players[1].snake[0];
+  g.engine.food = { x: head.x - 1, y: head.y };
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.element('score').textContent, '00');
+  assert.equal(g.element('opponentScore').textContent, '01');
+  assert.equal(g.element('bestName').textContent, '<b>Jamie</b>');
+  assert.equal(g.element('ratCount').textContent, '1');
+  assert.equal(g.element('totalEaten').textContent, '1');
+  assert.match(g.element('friendMessage').textContent, /Nice catch, <b>Jamie<\/b>/);
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v2')), { score: 1, name: '<b>Jamie</b>' });
+  assert.equal(load({ storage: g.storage, playerCount: null }).element('opponentInput').value, '<b>Jamie</b>');
+});
+
+test('a crash announces the surviving winner and rematch resets both snakes', () => {
+  const g = load({ playerCount: null });
+  g.element('opponentInput').value = 'Jamie'; g.click('playButton');
+  Object.assign(g.engine.players[0], { snake: [{ x: 1, y: 5 }], direction: 'left' });
+  Object.assign(g.engine.players[1], { snake: [{ x: 15, y: 15 }], direction: 'right' });
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.state(), 'over');
+  assert.equal(g.element('overlayTitle').textContent, 'Jamie wins!');
+  assert.match(g.element('overlayText').textContent, /Alex hit a wall/);
+  assert.match(g.element('announcer').textContent, /Jamie wins/);
+  assert.equal(g.element('playersSelect').disabled, false);
+  assert.equal(g.element('music').paused, true);
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.engine.winner, null);
+  assert.ok(g.engine.players.every((player) => player.collision === null && player.score === 0 && player.snake.length === 3));
+});
+
+test('simultaneous head collisions announce a draw rather than favouring either player', () => {
+  const g = load({ playerCount: null }); g.click('playButton');
+  Object.assign(g.engine.players[0], { snake: [{ x: 10, y: 10 }], direction: 'right' });
+  Object.assign(g.engine.players[1], { snake: [{ x: 12, y: 10 }], direction: 'left' });
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.state(), 'over');
+  assert.match(g.element('overlayTitle').textContent, /draw/);
+  assert.match(g.element('announcer').textContent, /head-on/);
+});
+
+test('Player 2 name is required in versus; Enter starts, and solo does not require it', () => {
+  const g = load({ playerCount: null });
+  g.element('opponentInput').value = '  '; g.click('playButton');
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.focus(), 'opponentInput');
+  assert.equal(g.element('opponentInput').attrs['aria-invalid'], 'true');
+  g.element('opponentInput').value = ' Jamie  Fox ';
+  g.element('opponentInput').listeners.keydown({ key: 'Enter', preventDefault() {} });
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('opponentName').textContent, 'Jamie Fox');
+  const solo = load({ playerCount: null });
+  solo.element('playersSelect').value = '1'; solo.element('playersSelect').listeners.change();
+  solo.element('opponentInput').value = '';
+  assert.equal(solo.element('opponentEntry').hidden, true);
+  assert.equal(solo.element('opponentInput').required, false);
+  assert.equal(solo.element('playerTwoControls').hidden, true);
+  solo.click('playButton');
+  assert.equal(solo.state(), 'playing');
+  solo.key('ArrowUp'); assert.deepEqual(solo.engine.turns, ['up']);
+  assert.equal(load({ storage: solo.storage, playerCount: null }).engine.playerCount, 1);
+});
+
+test('versus survives blocked storage and corrupt preferences fall back to two players', () => {
+  for (const saved of ['0', '3', 'NaN', '__proto__']) {
+    const g = load({ playerCount: null, storage: new Map([['snake-club-players-v1', saved]]) });
+    assert.equal(g.engine.playerCount, 2);
+  }
+  const g = load({ playerCount: null, blocked: true });
+  g.click('playButton'); assert.equal(g.state(), 'playing');
+  assert.equal(g.engine.playerCount, 2);
+});
 
 test('mode picker previews, remembers and locks the selected mode during a round', () => {
   const g = load();
