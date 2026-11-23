@@ -462,6 +462,25 @@ test('button Space is left to native click, repeat input and modifiers are ignor
   assert.equal(g.state(), 'playing');
 });
 
+test('settings pause play, Escape closes the panel, and summary Space stays native', () => {
+  const g = load();
+  const settings = g.element('gameSettings');
+  g.click('playButton');
+  settings.open = true;
+  settings.listeners.toggle();
+  assert.equal(g.state(), 'paused');
+  g.key('Escape');
+  assert.equal(settings.open, false);
+  assert.equal(g.focus(), 'settingsSummary');
+  assert.equal(g.state(), 'paused');
+  const summary = g.element('settingsSummary');
+  summary.tagName = 'SUMMARY';
+  g.key(' ', { target: summary });
+  assert.equal(g.state(), 'paused');
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+});
+
 test('swipes steer only during play and stop after pointer cancellation', () => {
   const g = load();
   const handlers = g.element('board').listeners;

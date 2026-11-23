@@ -5,31 +5,85 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — One more bite.</title>
-  <link rel="stylesheet" href="style.css?v=gold1">
+  <link rel="stylesheet" href="style.css?v=viewport1">
   <script src="snake-engine.js?v=gold1" defer></script>
-  <script src="game.js?v=gold1" defer></script>
+  <script src="game.js?v=viewport1" defer></script>
 </head>
 <body>
   <main class="app">
     <header class="header">
       <a class="brand" href="./" aria-label="Snake Club home"><span class="brand-icon" aria-hidden="true">S</span>SNAKE<span>CLUB</span></a>
       <span class="edition">THE ARCADE COLLECTION <b>№ 002</b></span>
+      <details class="game-settings" id="gameSettings">
+        <summary id="settingsSummary">SETTINGS &amp; STATS</summary>
+        <div class="settings-panel" role="region" aria-label="Game settings, stats and help">
+          <div class="audio-controls" role="group" aria-label="Audio controls">
+            <button id="testSoundButton" type="button" aria-pressed="false">♪ Test sound</button>
+            <button id="testChompButton" type="button">Test chomp</button>
+            <label for="volumeInput">Volume <input id="volumeInput" type="range" min="0" max="1" step="0.05" value="0.75"></label>
+            <span id="audioStatus" role="status">Music starts with Play, or try Test sound.</span>
+          </div>
+
+          <section class="intro" aria-labelledby="pageTitle">
+            <div><div class="eyebrow"><span></span> SMALL GAME. BIG APPETITE.</div><h1 id="pageTitle">One more <em>bite.</em></h1><p>Two snakes. One arena. Challenge a friend on the same keyboard.</p></div>
+            <div class="intro-note"><span class="orbit" aria-hidden="true">↗</span><span>Start small.<br>Stay hungry.</span></div>
+          </section>
+
+          <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you">
+            <div class="friend-crowd" aria-hidden="true">
+              <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+              <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+              <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+            </div>
+            <span id="friendMessage">Your snake friends are rooting for you!</span>
+          </div>
+
+          <div class="mode-controls">
+            <label for="playersSelect">PLAYERS</label>
+            <select id="playersSelect" aria-describedby="controlsHint">
+              <option value="2" selected>2 players · local versus</option>
+              <option value="1">1 player · solo</option>
+            </select>
+            <span class="controls-hint" id="controlsHint">Player 1: WASD · Player 2: arrow keys. Last snake standing wins.</span>
+            <label for="modeSelect">CHOOSE YOUR CHALLENGE</label>
+            <select id="modeSelect" aria-describedby="modeHint modeHelp">
+              <option value="obstacles" selected>Obstacles · walls &amp; barriers</option>
+              <option value="maze">Maze · winding passages</option>
+              <option value="classic">Classic · no obstacles</option>
+            </select>
+            <span id="modeHint">Solid edges. Dodge stone walls, striped barriers, and rocks.</span>
+            <span class="mode-help" id="modeHelp">Obstacles are on by default. Try Maze for winding passages, or Classic for no obstacles. Choose before a round.</span>
+          </div>
+
+          <section class="hunt-stats" aria-labelledby="huntTitle">
+            <div class="hunt-heading"><h2 id="huntTitle">This round’s catches</h2><span>LEVEL <strong id="level">1</strong> · SPEED <strong id="levelSpeed">1.0×</strong></span></div>
+            <table>
+              <caption id="levelHint">Next level: eat 10 of each animal. Each level adds 20% of base speed.</caption>
+              <thead><tr><th scope="col">Animal</th><th scope="col">Eaten</th><th scope="col">Next level target</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Rat</th><td id="ratCount">0</td><td id="ratTarget">10</td></tr>
+                <tr><th scope="row">Rabbit</th><td id="rabbitCount">0</td><td id="rabbitTarget">10</td></tr>
+                <tr><th scope="row">Frog</th><td id="frogCount">0</td><td id="frogTarget">10</td></tr>
+                <tr class="golden-catches"><th scope="row">★ Golden food (+5 points)</th><td id="goldenCount">0</td><td>Bonus only</td></tr>
+              </tbody>
+              <tfoot><tr><th scope="row">Total eaten</th><td id="totalEaten">0</td><td>Per round</td></tr></tfoot>
+            </table>
+          </section>
+
+          <section class="below-board" aria-label="How to play">
+            <div class="control"><span class="control-icon" aria-hidden="true">↗</span><div><strong>MAKE YOUR MOVE</strong><span>P1: <kbd>W A S D</kbd> · P2: <kbd>↑ ← ↓ →</kbd><br>Solo: either set · swipe steers P1</span></div></div>
+            <div class="control"><span class="control-icon" aria-hidden="true">Ⅱ</span><div><strong>TAKE A BREATHER</strong><span><kbd>SPACE</kbd> to pause <span class="control-or">/</span> <kbd>R</kbd> to restart</span></div></div>
+            <div class="saved-note"><span aria-hidden="true">✓</span><span id="storageNote">Best score + player name.<br>Saved in this browser.</span></div>
+          </section>
+
+          <footer class="page-footer"><span>LESS SCROLLING. MORE PLAYING.</span><span>STAY HUNGRY. <span aria-hidden="true">✳</span></span></footer>
+        </div>
+      </details>
       <button class="sound-button" id="soundButton" type="button" aria-pressed="true" aria-label="Mute music and sound">♪ <span id="soundLabel">MUSIC READY</span></button>
     </header>
 
     <audio id="music" src="assets/snake-groove.mp3" preload="auto" loop playsinline></audio>
     <audio id="chomp" src="assets/chomp.wav" preload="auto" playsinline></audio>
-    <div class="audio-controls" role="group" aria-label="Audio controls">
-      <button id="testSoundButton" type="button" aria-pressed="false">♪ Test sound</button>
-      <button id="testChompButton" type="button">Test chomp</button>
-      <label for="volumeInput">Volume <input id="volumeInput" type="range" min="0" max="1" step="0.05" value="0.75"></label>
-      <span id="audioStatus" role="status">Music starts with Play, or try Test sound.</span>
-    </div>
-
-    <section class="intro" aria-labelledby="pageTitle">
-      <div><div class="eyebrow"><span></span> SMALL GAME. BIG APPETITE.</div><h1 id="pageTitle">One more <em>bite.</em></h1><p>Two snakes. One arena. Challenge a friend on the same keyboard.</p></div>
-      <div class="intro-note"><span class="orbit" aria-hidden="true">↗</span><span>Start small.<br>Stay hungry.</span></div>
-    </section>
 
     <section class="game-shell" data-mode="obstacles" data-players="2" aria-label="Snake arcade">
       <div class="scoreboard">
@@ -40,30 +94,6 @@
       </div>
 
       <div class="player-strip"><span class="player-identity">PLAYING <img class="avatar-image player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong></span><span class="opponent-identity" id="opponentIdentity">P2 · ARROWS <strong id="opponentName">Player 2</strong></span><span>CHAMPION <strong id="bestName">No record yet</strong></span><span>PREY <strong id="preyName">Rat</strong></span></div>
-      <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you">
-        <div class="friend-crowd" aria-hidden="true">
-          <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
-          <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
-          <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
-        </div>
-        <span id="friendMessage">Your snake friends are rooting for you!</span>
-      </div>
-      <div class="mode-controls">
-        <label for="playersSelect">PLAYERS</label>
-        <select id="playersSelect" aria-describedby="controlsHint">
-          <option value="2" selected>2 players · local versus</option>
-          <option value="1">1 player · solo</option>
-        </select>
-        <span class="controls-hint" id="controlsHint">Player 1: WASD · Player 2: arrow keys. Last snake standing wins.</span>
-        <label for="modeSelect">CHOOSE YOUR CHALLENGE</label>
-        <select id="modeSelect" aria-describedby="modeHint modeHelp">
-          <option value="obstacles" selected>Obstacles · walls &amp; barriers</option>
-          <option value="maze">Maze · winding passages</option>
-          <option value="classic">Classic · no obstacles</option>
-        </select>
-        <span id="modeHint">Solid edges. Dodge stone walls, striped barriers, and rocks.</span>
-        <span class="mode-help" id="modeHelp">Obstacles are on by default. Try Maze for winding passages, or Classic for no obstacles. Choose before a round.</span>
-      </div>
       <div class="golden-notice"><span aria-hidden="true">★</span><strong>GOLDEN FOOD</strong><span id="goldenStatus" data-active="false">Appears randomly during play · catch it for +5 points</span></div>
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Avoid your body, solid walls, barriers, and rocks. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
@@ -71,7 +101,7 @@
           <div class="overlay-content">
             <span class="overlay-tag" id="overlayTag">A CLASSIC WITH AN APPETITE</span>
             <h2 id="overlayTitle">Small snake. Big plans.</h2>
-            <p id="overlayText">Pick your mode above. Eat. Grow. Explore.<br>Avoid your tail and any walls or obstacles.</p>
+            <p id="overlayText">Choose a mode in Settings. Eat. Grow. Explore.<br>Avoid your tail and any walls or obstacles.</p>
             <div class="player-entry" id="playerEntry">
               <label for="playerInput" id="playerInputLabel">Player 1 · green snake · WASD</label>
               <input id="playerInput" name="player" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" aria-describedby="nameHint" required>
@@ -104,20 +134,6 @@
       </div>
     </section>
 
-    <section class="hunt-stats" aria-labelledby="huntTitle">
-      <div class="hunt-heading"><h2 id="huntTitle">This round’s catches</h2><span>LEVEL <strong id="level">1</strong> · SPEED <strong id="levelSpeed">1.0×</strong></span></div>
-      <table>
-        <caption id="levelHint">Next level: eat 10 of each animal. Each level adds 20% of base speed.</caption>
-        <thead><tr><th scope="col">Animal</th><th scope="col">Eaten</th><th scope="col">Next level target</th></tr></thead>
-        <tbody>
-          <tr><th scope="row">Rat</th><td id="ratCount">0</td><td id="ratTarget">10</td></tr>
-          <tr><th scope="row">Rabbit</th><td id="rabbitCount">0</td><td id="rabbitTarget">10</td></tr>
-          <tr><th scope="row">Frog</th><td id="frogCount">0</td><td id="frogTarget">10</td></tr>
-          <tr class="golden-catches"><th scope="row">★ Golden food (+5 points)</th><td id="goldenCount">0</td><td>Bonus only</td></tr>
-        </tbody>
-        <tfoot><tr><th scope="row">Total eaten</th><td id="totalEaten">0</td><td>Per round</td></tr></tfoot>
-      </table>
-    </section>
 
     <div class="touch-area">
     <div class="touch-controls" role="group" aria-label="Player 1 direction controls">
@@ -136,12 +152,6 @@
     </div>
     </div>
 
-    <section class="below-board" aria-label="How to play">
-      <div class="control"><span class="control-icon" aria-hidden="true">↗</span><div><strong>MAKE YOUR MOVE</strong><span>P1: <kbd>W A S D</kbd> · P2: <kbd>↑ ← ↓ →</kbd><br>Solo: either set · swipe steers P1</span></div></div>
-      <div class="control"><span class="control-icon" aria-hidden="true">Ⅱ</span><div><strong>TAKE A BREATHER</strong><span><kbd>SPACE</kbd> to pause <span class="control-or">/</span> <kbd>R</kbd> to restart</span></div></div>
-      <div class="saved-note"><span aria-hidden="true">✓</span><span id="storageNote">Best score + player name.<br>Saved in this browser.</span></div>
-    </section>
-    <footer class="page-footer"><span>LESS SCROLLING. MORE PLAYING.</span><span>STAY HUNGRY. <span aria-hidden="true">✳</span></span></footer>
     <div class="sr-only" id="announcer" aria-live="polite" aria-atomic="true"></div>
   </main>
 </body>

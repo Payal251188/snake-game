@@ -132,7 +132,7 @@
     if (state === 'ready') {
       $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
       $('overlayTitle').textContent = dual ? 'Two snakes. One arena.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
-      $('overlayText').textContent = `${modes[engine.mode].hint}\n${dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic above, then play.'}`;
+      $('overlayText').textContent = `${modes[engine.mode].hint}\n${dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic in Settings, then play.'}`;
     }
     canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
@@ -377,6 +377,7 @@
         localStorage.setItem(opponentKey, opponentName);
       } catch { storageUnavailable(); }
     }
+    $('gameSettings').open = false;
     void unlockAudio();
     engine.reset();
     updateMode();
@@ -698,8 +699,17 @@
   }
 
   const directionKeys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
+  $('gameSettings').addEventListener('toggle', () => {
+    if ($('gameSettings').open && state === 'playing') pause();
+  });
   window.addEventListener('keydown', (event) => {
-    if (event.ctrlKey || event.metaKey || event.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable) return;
+    if (event.key === 'Escape' && $('gameSettings').open) {
+      event.preventDefault();
+      $('gameSettings').open = false;
+      $('settingsSummary').focus({ preventScroll: true });
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey || /^(INPUT|TEXTAREA|SELECT|SUMMARY)$/.test(event.target.tagName) || event.target.isContentEditable || event.target.closest('.settings-panel')) return;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     // Let focused buttons handle Space themselves; do not trigger two actions.
     if (key === ' ' && event.target.closest('button')) return;
