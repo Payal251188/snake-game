@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — One more bite.</title>
-  <link rel="stylesheet" href="style.css?v=skins1">
+  <link rel="stylesheet" href="style.css?v=cheers1">
   <script src="snake-engine.js?v=ai1" defer></script>
   <script src="snake-ai.js?v=ai1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
@@ -31,15 +31,6 @@
             <div><div class="eyebrow"><span></span> SMALL GAME. BIG APPETITE.</div><h1 id="pageTitle">One more <em>bite.</em></h1><p>Two snakes. One arena. Challenge a friend on the same keyboard.</p></div>
             <div class="intro-note"><span class="orbit" aria-hidden="true">↗</span><span>Start small.<br>Stay hungry.</span></div>
           </section>
-
-          <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you">
-            <div class="friend-crowd" aria-hidden="true">
-              <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
-              <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
-              <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
-            </div>
-            <span id="friendMessage">Your snake friends are rooting for you!</span>
-          </div>
 
           <section class="skin-picker" aria-labelledby="skinTitle">
             <div class="skin-picker-heading">
@@ -161,7 +152,17 @@
 
       <div class="game-footer">
         <span class="speed-label">PACE <strong id="pace">1.0×</strong></span>
-        <span class="footer-message" id="footerMessage">Find your rhythm. Feed your ambition.</span>
+        <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you">
+          <div class="friend-crowd" aria-hidden="true">
+            <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+            <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+            <span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span>
+          </div>
+          <div class="friend-copy">
+            <span id="friendMessage">Your snake friends are rooting for you!</span>
+            <span class="footer-message" id="footerMessage">Find your rhythm. Feed your ambition.</span>
+          </div>
+        </div>
         <div class="game-actions"><button id="pauseButton" type="button" disabled>Ⅱ PAUSE</button><span class="divider"></span><button id="restartButton" type="button" aria-label="Start a new game">↻ RESTART</button></div>
       </div>
     </section>
