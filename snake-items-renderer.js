@@ -36,13 +36,15 @@
     ctx.moveTo(0.175, 0.255); ctx.lineTo(0.385, 0.255); ctx.stroke();
   }
 
-  function draw(ctx, { mushrooms, herbs, left, top, cell }) {
+  function draw(ctx, { mushrooms, herbs, left, top, cell, time = 0, animate = false }) {
     if (cell <= 0) return;
     for (const [items, sprite] of [[mushrooms, mushroom], [herbs, herb]]) {
       for (const item of items) {
         ctx.save();
         ctx.translate(left + (item.x + 0.5) * cell, top + (item.y + 0.5) * cell);
         ctx.scale(cell, cell);
+        ellipse(ctx, 0.05, 0.27, 0.34, 0.12, '#0008');
+        ctx.translate(0, -0.08 - (animate ? Math.sin(time / 900 + item.x + item.y) * 0.03 : 0));
         sprite(ctx);
         ctx.restore();
       }

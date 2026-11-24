@@ -3,21 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#101e25">
-  <title>Snake Club — One more bite.</title>
+  <meta name="theme-color" content="#050b16">
+  <title>Snake Club — Orbital Arena</title>
   <link rel="stylesheet" href="style.css?v=mushrooms1">
+  <link rel="stylesheet" href="orbital-theme.css?v=orbit1">
   <script src="snake-engine.js?v=mushrooms1" defer></script>
   <script src="snake-ai.js?v=mushrooms1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
-  <script src="snake-renderer.js?v=skins1" defer></script>
-  <script src="snake-items-renderer.js?v=mushrooms1" defer></script>
-  <script src="game.js?v=mushrooms1" defer></script>
+  <script src="snake-renderer.js?v=orbit1" defer></script>
+  <script src="snake-items-renderer.js?v=orbit1" defer></script>
+  <script src="snake-scene.js?v=orbit1" defer></script>
+  <script src="game.js?v=orbit1" defer></script>
 </head>
 <body>
   <main class="app">
     <header class="header">
       <a class="brand" href="./" aria-label="Snake Club home"><span class="brand-icon" aria-hidden="true">S</span>SNAKE<span>CLUB</span></a>
-      <span class="edition">THE ARCADE COLLECTION <b>№ 002</b></span>
+      <span class="edition">THE ORBITAL ARCADE <b>SECTOR 002</b></span>
       <details class="game-settings" id="gameSettings">
         <summary id="settingsSummary">SETTINGS &amp; STATS</summary>
         <div class="settings-panel" role="region" aria-label="Game settings, stats and help">
@@ -29,7 +31,7 @@
           </div>
 
           <section class="intro" aria-labelledby="pageTitle">
-            <div><div class="eyebrow"><span></span> SMALL GAME. BIG APPETITE.</div><h1 id="pageTitle">One more <em>bite.</em></h1><p>Two snakes. One arena. Challenge a friend on the same keyboard.</p></div>
+            <div><div class="eyebrow"><span></span> A CLASSIC. A NEW DIMENSION.</div><h1 id="pageTitle">Find your <em>orbit.</em></h1><p>A floating arena. A bigger perspective. One more bite.</p></div>
             <div class="intro-note"><span class="orbit" aria-hidden="true">↗</span><span>Start small.<br>Stay hungry.</span></div>
           </section>
 
@@ -48,6 +50,14 @@
             </div>
             <canvas class="skin-preview" id="skinPreview" width="720" height="160" role="img" aria-label="Classic Olive snake preview">Snake skin preview.</canvas>
             <p id="skinDescription" role="status">The original shaded olive snake with fine scales.</p>
+            <div class="visual-controls">
+              <label for="viewSelect">Arena camera</label>
+              <select id="viewSelect" aria-describedby="viewHint">
+                <option value="follow" selected>Immersive · follow your snake</option>
+                <option value="overview">Orbit · full arena</option>
+              </select>
+              <span id="viewHint">Local versus keeps the full arena visible for both players.</span>
+            </div>
           </section>
 
           <div class="mode-controls">
@@ -123,6 +133,10 @@
       <div class="player-strip"><span class="player-identity">PLAYING <img class="avatar-image player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong></span><span class="opponent-identity" id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong></span><span>CHAMPION <strong id="bestName">No record yet</strong></span><span>PREY <strong id="preyName">Rat</strong></span></div>
       <div class="golden-notice"><span aria-hidden="true">★</span><strong>GOLDEN FOOD</strong><span id="goldenStatus" data-active="false">Appears randomly during play · catch it for +5 points</span><span class="mushroom-status" id="mushroomStatus">🍄 4 · +50</span><span class="control-status" id="controlStatus" data-reversed="false" hidden></span></div>
       <div class="board-wrap" id="boardWrap">
+        <div class="scene-toolbar">
+          <span class="scene-caption"><i aria-hidden="true"></i><span id="cameraLabel">ORBIT · FULL ARENA</span></span>
+          <button class="fullscreen-button" id="fullscreenButton" type="button" aria-pressed="false">⛶ EXPAND VIEW</button>
+        </div>
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Avoid your body, solid walls, barriers, and rocks. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay">
           <div class="overlay-content">

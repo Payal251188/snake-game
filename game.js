@@ -8,6 +8,7 @@
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
   const skinKey = 'snake-club-skin-v1';
+  const viewKey = 'snake-club-view-v1';
   const modeKey = 'snake-club-mode-v1';
   const playersKey = 'snake-club-players-v1';
   const opponentKey = 'snake-club-player-two-v1';
@@ -22,8 +23,16 @@
   const avatars = { mint: 'Mint', peach: 'Peach', olive: 'Olive' };
   let playerAvatar = 'mint';
   let playerSkin = 'classic';
+  let preferredView = 'follow';
+  let sceneView = 'overview';
+  let cameraFocus = null;
+  let visualTime = 0;
+  let lastVisualFrame = null;
+  let sceneDirty = true;
+  const pickupEffects = new SnakeScene.PickupEffects();
   const cleanName = (value) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let reducedMotion = motionPreference.matches;
   let state = 'ready';
   let best = 0;
   let bestName = '';
@@ -101,6 +110,8 @@
     const savedFood = Number(localStorage.getItem(foodKey));
     if ([1, 5, 10].includes(savedFood)) engine.reset({ foodCount: savedFood });
     playerSkin = SnakeSkins.get(localStorage.getItem(skinKey)).id;
+    const savedView = localStorage.getItem(viewKey);
+    if (['overview', 'follow'].includes(savedView)) preferredView = savedView;
     const savedAvatar = localStorage.getItem(avatarKey);
     if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
     const savedMode = localStorage.getItem(modeKey);
@@ -160,12 +171,41 @@
       try { localStorage.setItem(skinKey, playerSkin); } catch { storageUnavailable(); }
     }
     updateMode();
-    draw(0);
+    draw();
     announce(`${SnakeSkins.get(playerSkin).name} skin applied to Player 1. Gameplay is unchanged.`);
+  });
+
+  function resetPresentation() {
+    cameraFocus = null;
+    visualTime = 0;
+    pickupEffects.clear();
+  }
+  function updateSceneUI() {
+    const next = engine.playerCount === 2 ? 'overview' : preferredView;
+    if (sceneView !== next) cameraFocus = null;
+    sceneView = next;
+    $('viewSelect').value = next;
+    $('viewSelect').disabled = engine.playerCount === 2;
+    $('viewHint').textContent = engine.playerCount === 2
+      ? 'Local versus keeps the full arena visible for both players.'
+      : 'Immersive follows your snake with a sector map. Compact screens use the full-arena view.';
+  }
+  $('viewSelect').addEventListener('change', () => {
+    const selected = $('viewSelect').value;
+    if (!['overview', 'follow'].includes(selected) || engine.playerCount === 2) { updateSceneUI(); return; }
+    preferredView = selected;
+    if (canSave) {
+      try { localStorage.setItem(viewKey, preferredView); } catch { storageUnavailable(); }
+    }
+    cameraFocus = null;
+    updateSceneUI();
+    draw();
+    announce(selected === 'follow' ? 'Immersive follow camera enabled. The sector map shows the whole arena.' : 'Orbit view enabled. The whole arena is visible.');
   });
 
   function updateMode() {
     updateSkinUI();
+    updateSceneUI();
     $('modeSelect').value = engine.mode;
     document.querySelector('.game-shell').dataset.mode = engine.mode;
     document.querySelector('.game-shell').dataset.players = engine.aiCount ? 'ai' : String(engine.playerCount);
@@ -199,12 +239,13 @@
     const mode = $('modeSelect').value;
     if (!Object.hasOwn(modes, mode)) return;
     engine.reset({ mode });
+    resetPresentation();
     if (canSave) {
       try { localStorage.setItem(modeKey, mode); } catch { storageUnavailable(); }
     }
     updateMode();
     updateScores();
-    draw(0);
+    draw();
     announce(`${modes[mode].name} mode selected. ${modes[mode].hint}`);
   });
   $('playersSelect').addEventListener('change', () => {
@@ -213,12 +254,13 @@
     if (!['1', '2', 'ai'].includes(selection)) return;
     const playerCount = selection === 'ai' ? 1 : Number(selection);
     engine.reset({ playerCount, aiCount: selection === 'ai' ? preferredAICount : 0 });
+    resetPresentation();
     if (canSave) {
       try { localStorage.setItem(playersKey, selection); } catch { storageUnavailable(); }
     }
     updateMode();
     updateScores();
-    draw(0);
+    draw();
     announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player versus' : 'Solo'} selected. ${steeringHint()}`);
   });
   $('aiCountSelect').addEventListener('change', () => {
@@ -226,13 +268,16 @@
     const count = Number($('aiCountSelect').value);
     if (![2, 3].includes(count)) return;
     preferredAICount = count;
-    if (engine.aiCount) engine.reset({ aiCount: count });
+    if (engine.aiCount) {
+      engine.reset({ aiCount: count });
+      resetPresentation();
+    }
     if (canSave) {
       try { localStorage.setItem(aiCountKey, String(count)); } catch { storageUnavailable(); }
     }
     updateMode();
     updateScores();
-    draw(0);
+    draw();
     announce(`${count} AI opponents selected.`);
   });
   $('foodSelect').addEventListener('change', () => {
@@ -240,12 +285,13 @@
     const foodCount = Number($('foodSelect').value);
     if (![1, 5, 10].includes(foodCount)) return;
     engine.reset({ foodCount });
+    resetPresentation();
     if (canSave) {
       try { localStorage.setItem(foodKey, String(foodCount)); } catch { storageUnavailable(); }
     }
     updateMode();
     updateScores();
-    draw(0);
+    draw();
     announce(`${foodCount} food items on the board.`);
   });
   updateMode();
@@ -303,6 +349,7 @@
 
   function setState(next) {
     state = next;
+    sceneDirty = true;
     if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
     document.querySelector('.game-shell').dataset.state = state;
     $('matchStatus').textContent = {
@@ -484,6 +531,7 @@
     $('gameSettings').open = false;
     void unlockAudio();
     engine.reset();
+    resetPresentation();
     updateMode();
     resetCheer();
     startingBest = best;
@@ -530,6 +578,12 @@
             try { localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName })); }
             catch { storageUnavailable(); }
           }
+        }
+      }
+      if (!reducedMotion) {
+        for (const caught of engine.lastCatches) {
+          const head = engine.players[caught.playerIndex].snake[0];
+          pickupEffects.emit({ ...head, type: caught.type, points: caught.points }, visualTime);
         }
       }
       updateScores();
@@ -584,22 +638,17 @@
     }
   }
 
-  function roundedRect(x, y, w, h, radius, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, radius);
-    ctx.fill();
-  }
-
   function ellipse(x, y, rx, ry, color, rotation = 0) {
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rotation, 0, Math.PI * 2); ctx.fill();
   }
 
-  function drawPrey(x, y, cell, type) {
+  function drawPrey(x, y, cell, type, time) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(cell, cell);
+    ellipse(0.04, 0.25, 0.36, 0.15, '#0008');
+    ctx.translate(0, -0.1 - (reducedMotion ? 0 : Math.sin(time / 850 + x) * 0.025));
     // A warm halo keeps the small animals easy to spot against the court.
     ellipse(0, 0, 0.48, 0.46, '#f8b48722');
     if (type === 'frog') {
@@ -642,6 +691,8 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(cell, cell);
+    ellipse(0.04, 0.28, 0.35, 0.13, '#0009');
+    ctx.translate(0, -0.12);
     const pulse = reducedMotion ? 1 : 1 + Math.sin(time / 200) * 0.08;
     ellipse(0, 0, 0.49 * pulse, 0.49 * pulse, '#ffda6533');
     ctx.fillStyle = '#ffda65';
@@ -663,63 +714,28 @@
     ctx.restore();
   }
 
-  function draw(time) {
+  function draw() {
+    sceneDirty = false;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#101e25';
-    ctx.fillRect(0, 0, width, height);
-    const cell = Math.min((width - 24) / engine.columns, (height - 24) / engine.rows);
-    const left = (width - cell * engine.columns) / 2;
-    const top = (height - cell * engine.rows) / 2;
-    const boardWidth = cell * engine.columns;
-    const boardHeight = cell * engine.rows;
-    roundedRect(left, top, boardWidth, boardHeight, 3, '#162a30');
-    ctx.strokeStyle = '#a6d4bc0a';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= engine.columns; x++) { ctx.moveTo(left + x * cell, top); ctx.lineTo(left + x * cell, top + boardHeight); }
-    for (let y = 0; y <= engine.rows; y++) { ctx.moveTo(left, top + y * cell); ctx.lineTo(left + boardWidth, top + y * cell); }
-    ctx.stroke();
-    ctx.strokeStyle = '#7ba59555';
-    ctx.strokeRect(left, top, boardWidth, boardHeight);
-
-    for (const obstacle of engine.obstacles) {
-      const x = left + obstacle.x * cell;
-      const y = top + obstacle.y * cell;
-      const inset = cell * 0.08;
-      if (obstacle.type === 'rock') {
-        ctx.fillStyle = '#b6a08b';
-        ctx.beginPath();
-        ctx.moveTo(x + cell * 0.25, y + inset);
-        ctx.lineTo(x + cell * 0.75, y + cell * 0.12);
-        ctx.lineTo(x + cell * 0.94, y + cell * 0.6);
-        ctx.lineTo(x + cell * 0.7, y + cell * 0.91);
-        ctx.lineTo(x + cell * 0.18, y + cell * 0.84);
-        ctx.lineTo(x + inset, y + cell * 0.4);
-        ctx.closePath(); ctx.fill();
-        roundedRect(x + cell * 0.3, y + cell * 0.25, cell * 0.35, cell * 0.12, inset, '#d7c4ac');
-      } else {
-        const barrier = obstacle.type === 'barrier';
-        roundedRect(x + inset, y + inset, cell - inset * 2, cell - inset * 2, inset, barrier ? '#e5ad68' : '#738d92');
-        ctx.strokeStyle = barrier ? '#64452c' : '#3c555e';
-        ctx.lineWidth = Math.max(1, cell * (barrier ? 0.12 : 0.05));
-        ctx.beginPath();
-        if (barrier) {
-          ctx.moveTo(x + cell * 0.2, y + cell * 0.55); ctx.lineTo(x + cell * 0.55, y + cell * 0.2);
-          ctx.moveTo(x + cell * 0.45, y + cell * 0.8); ctx.lineTo(x + cell * 0.8, y + cell * 0.45);
-        } else {
-          ctx.moveTo(x + inset, y + cell * 0.5); ctx.lineTo(x + cell - inset, y + cell * 0.5);
-          ctx.moveTo(x + cell * 0.5, y + inset); ctx.lineTo(x + cell * 0.5, y + cell * 0.5);
-        }
-        ctx.stroke();
-      }
-    }
-    for (const food of engine.foods) drawPrey(left + (food.x + 0.5) * cell, top + (food.y + 0.5) * cell, cell, food.type);
-    if (engine.goldenFood) drawGoldenFood(left + (engine.goldenFood.x + 0.5) * cell, top + (engine.goldenFood.y + 0.5) * cell, cell, time);
-    SnakeItemsRenderer.draw(ctx, { mushrooms: engine.mushrooms, herbs: engine.herbs, left, top, cell });
+    const target = engine.players[0].snake[0] || { x: engine.columns / 2, y: engine.rows / 2 };
+    const focus = cameraFocus || { x: target.x + 0.5, y: target.y + 0.5 };
+    const frame = SnakeScene.layout({ width, height, columns: engine.columns, rows: engine.rows, view: sceneView, focus });
+    const { cell, left, top } = frame;
+    SnakeScene.background(ctx, { width, height, time: visualTime, focus: !reducedMotion && frame.view === 'follow' ? focus : undefined, pixelRatio: canvas.width / width });
+    const viewLabel = frame.view === 'follow' ? 'IMMERSIVE · FOLLOW' : 'ORBIT · FULL ARENA';
+    if ($('cameraLabel').textContent !== viewLabel) $('cameraLabel').textContent = viewLabel;
+    canvas.dataset.view = frame.view;
+    ctx.save();
+    ctx.translate(frame.centerX, frame.centerY);
+    ctx.transform(1, 0, -frame.skew, frame.tilt, 0, 0);
+    SnakeScene.terrain(ctx, frame, engine.obstacles);
+    for (const food of engine.foods) drawPrey(left + (food.x + 0.5) * cell, top + (food.y + 0.5) * cell, cell, food.type, visualTime);
+    if (engine.goldenFood) drawGoldenFood(left + (engine.goldenFood.x + 0.5) * cell, top + (engine.goldenFood.y + 0.5) * cell, cell, visualTime);
+    SnakeItemsRenderer.draw(ctx, { mushrooms: engine.mushrooms, herbs: engine.herbs, left, top, cell, time: visualTime, animate: !reducedMotion });
     engine.players.forEach((player, index) => {
       if (!player.alive) return;
       const skin = SnakeSkins.forPlayer(index, playerSkin);
-      SnakeRenderer.draw(ctx, { left, top, cell, time, player, skin, animate: state === 'playing' && !reducedMotion });
+      SnakeRenderer.draw(ctx, { left, top, cell, time: visualTime, player, skin, animate: state === 'playing' && !reducedMotion });
       if (engine.players.length > 1 || player.controlsReversed) {
         ctx.fillStyle = skin.palette.label;
         ctx.font = `bold ${Math.max(9, cell * 0.4)}px system-ui`;
@@ -728,6 +744,15 @@
         ctx.fillText(`${label}${player.controlsReversed ? ' ↔↕' : ''}`, left + (player.snake[0].x + 0.5) * cell, top + (player.snake[0].y - 0.15) * cell);
       }
     });
+    if (!reducedMotion) pickupEffects.draw(ctx, frame, visualTime);
+    ctx.restore();
+    if (frame.view === 'follow') {
+      SnakeScene.minimap(ctx, {
+        width, height, columns: engine.columns, rows: engine.rows, players: engine.players,
+        colors: engine.players.map((_, index) => SnakeSkins.forPlayer(index, playerSkin).palette.label),
+        obstacles: engine.obstacles, foods: engine.foods, mushrooms: engine.mushrooms, herbs: engine.herbs, goldenFood: engine.goldenFood, frame,
+      });
+    }
   }
 
   function resize() {
@@ -738,8 +763,29 @@
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
-    draw(0);
+    draw();
   }
+
+  function updateFullscreenUI() {
+    const supported = Boolean(document.documentElement?.requestFullscreen);
+    $('fullscreenButton').hidden = !supported;
+    $('fullscreenButton').textContent = document.fullscreenElement ? '↙ EXIT FULLSCREEN' : '⛶ EXPAND VIEW';
+    $('fullscreenButton').setAttribute('aria-pressed', String(Boolean(document.fullscreenElement)));
+  }
+  $('fullscreenButton').addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (document.documentElement?.requestFullscreen) await document.documentElement.requestFullscreen();
+      else announce('Fullscreen is not supported by this browser.');
+    } catch { announce('Fullscreen could not start. You can still play in this window.'); }
+  });
+  document.addEventListener('fullscreenchange', updateFullscreenUI);
+  updateFullscreenUI();
+  motionPreference.addEventListener?.('change', (event) => {
+    reducedMotion = event.matches;
+    if (reducedMotion) pickupEffects.clear();
+    draw();
+  });
 
   const directionKeys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
   $('gameSettings').addEventListener('toggle', () => {
@@ -834,6 +880,15 @@
   });
 
   function frame(time) {
+    const delta = lastVisualFrame === null ? 0 : Math.min(50, Math.max(0, time - lastVisualFrame));
+    lastVisualFrame = time;
+    if (state === 'playing') {
+      if (!reducedMotion) visualTime += delta;
+      const head = engine.players[0].snake[0];
+      if (head) cameraFocus = SnakeScene.follow(cameraFocus, { x: head.x + 0.5, y: head.y + 0.5 }, {
+        columns: engine.columns, rows: engine.rows, delta, snap: reducedMotion,
+      });
+    }
     if (cheerRemaining > 0 && cheerFrame !== null) {
       cheerRemaining -= Math.min(time - cheerFrame, 200);
       if (cheerRemaining <= 0) resetCheer();
@@ -847,7 +902,7 @@
         advance();
       }
     }
-    draw(time);
+    if (state === 'playing' || sceneDirty) draw();
     requestAnimationFrame(frame);
   }
   new ResizeObserver(resize).observe($('boardWrap'));

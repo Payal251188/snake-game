@@ -20,6 +20,18 @@ Visit **http://localhost:5173**.
 
 The arena fits the viewport, with document scrolling locked during play and pause. Open **Settings & Stats** in the header for player/mode selection, audio tools, round statistics, and help. Opening this panel pauses an active game; **Escape** closes it without resuming.
 
+## Orbital Arena presentation
+
+The game now has a full-width, space-inspired **2.5D Canvas** presentation: a tilted floating platform, raised walls and barriers, contact shadows, lit snake bodies, floating collectibles, a shaded planet, layered stars, and pickup rings/score particles. This is a visual projection, not a change to the grid or collision rules; the arena remains the same finite 24×20 board.
+
+- **Immersive camera** follows your snake in solo and AI Arena, with a sector minimap showing all snakes, hazards, food, special items, and the visible camera region. Choose **Settings & Stats → Arena camera → Orbit · full arena** for a complete overview. The camera preference is saved independently of game settings.
+- Local two-player matches always use the complete arena view so neither player loses sight of their snake. Very short/compact canvases also fall back to overview automatically.
+- **Expand View**, at the top-right of the arena, enters browser fullscreen where supported. Use **Exit Fullscreen** to leave; the browser also supports Escape. Unsupported browsers keep the normal viewport layout.
+- Ambient motion and camera easing stop while paused. System reduced-motion preferences disable ambient drift, pickup particles and bobbing, and replace camera easing with immediate tracking. Changes to that preference are handled live.
+- Rendering uses deterministic decorative star positions, cached backdrop gradients and a bounded particle list, without consuming gameplay randomness. Static ready/paused/end scenes redraw only when needed. No graphics library, remote assets, or build step is required.
+
+## Gameplay
+
 - **AI Arena:** open **Settings & Stats → Players → AI Arena** before a round. Choose **2 or 3 AI opponents**. You control the green snake with WASD, arrow keys, or the first touch pad. The orange, cyan, and purple bots find reachable food, avoid walls/bodies, consider escape space, and compete under the same movement and collision rules. No network or AI service is required.
 - Crashed bots disappear and stop blocking cells. You win by being the last snake standing; your own crash ends the round. If the board fills first, the highest surviving score wins (ties draw). The scoreboard shows **AI LEFT**, with individual bot scores and elimination status in **Settings & Stats**. Bots cannot replace your saved best score. Pause, restart, and automatic tab/blur pause apply to every snake.
 - **Snake skins:** open **Settings & Stats → Your snake, your style** and choose **Classic Olive**, **Neon Circuit**, **Ember Viper**, or **Frost Pearl**. The live preview uses the same renderer as the board. Your selection applies immediately to Player 1, is saved independently of the portrait/avatar, and survives restart and reload. You can also change skins while paused without resetting the round. Opponents keep their original colors. Skins change appearance only—not movement, collision, food, scoring, or difficulty. If browser storage is unavailable, the choice still works for the session.
@@ -59,8 +71,10 @@ Switching tabs or leaving the window pauses play automatically. Resizing preserv
 - `snake-skins.js`: immutable cosmetic catalog, safe skin lookup, and fixed opponent palettes.
 - `snake-renderer.js`: shared Canvas snake rendering and patterns for gameplay and skin previews.
 - `snake-items-renderer.js`: independent Canvas sprites for mushrooms and healing herbs.
+- `snake-scene.js`: read-only 2.5D projection, camera math, planetary backdrop, raised terrain, minimap, and bounded pickup effects.
 - `game.js`: browser controller, board rendering, input, audio, storage, and UI states.
-- `index.html`, `style.css`: responsive arcade interface.
+- `index.html`, `style.css`: responsive arcade structure and base layout.
+- `orbital-theme.css`: dark glass HUD, orbital visual styling, and camera/fullscreen controls.
 
 ## Test
 
@@ -71,6 +85,8 @@ node --test tests/*.test.cjs
 ```
 
 Optional viewport checks in `tests/viewport.test.cjs` use Playwright and Google Chrome; they skip when Playwright is unavailable. With Playwright installed, run `node --test tests/viewport.test.cjs` (or set `PLAYWRIGHT_MODULE` to its module path and `CHROME_PATH` to a Chrome executable). These checks cover eight desktop/mobile sizes in both local versus and AI Arena, scrollbar-free play, visible controls, and settings/pause behavior.
+
+Scene tests cover overview bounds across canvas sizes, projection round-trips, follow-camera easing/wrap seams, immutable rendering, RNG independence, gradient caching, bounded effects, saved camera choices, paused rendering, live reduced-motion changes, and native fullscreen entry/exit. Existing viewport tests cover both overview and immersive play.
 
 Mushroom/herb tests cover four-item spawning, +50-point attribution, growth and no-growth rules, input reversal on both axes and all input devices, independent player effects, repeated pickups, five-second simulation timing, queued-turn cleanup, cure priority, collision precedence, board completion, AI behavior, pause/reset, and full desktop/mobile browser pickup-and-recovery flows.
 
