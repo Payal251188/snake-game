@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — One more bite.</title>
-  <link rel="stylesheet" href="style.css?v=cheers1">
-  <script src="snake-engine.js?v=ai1" defer></script>
-  <script src="snake-ai.js?v=ai1" defer></script>
+  <link rel="stylesheet" href="style.css?v=mushrooms1">
+  <script src="snake-engine.js?v=mushrooms1" defer></script>
+  <script src="snake-ai.js?v=mushrooms1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
   <script src="snake-renderer.js?v=skins1" defer></script>
-  <script src="game.js?v=skins1" defer></script>
+  <script src="snake-items-renderer.js?v=mushrooms1" defer></script>
+  <script src="game.js?v=mushrooms1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -65,6 +66,7 @@
               <option value="1">1 · original</option><option value="5" selected>5 · plentiful</option><option value="10">10 · feast</option>
             </select>
             <span class="mode-help" id="foodHelp">Food refills after every catch. AI snakes compete for the same food; survive to be the last snake standing.</span>
+            <span class="mode-help">🍄 Four random mushrooms: +50 points and one segment, but left/right and up/down controls reverse until you eat a 🌿 herb. Herbs appear after 5 seconds of active play. Keyboard, touch buttons, and swipes all reverse; the usual no-180°-turn rule still applies. Repeated mushrooms do not reset the cure delay.</span>
             <span class="controls-hint" id="controlsHint">Player 1: WASD · Player 2: arrow keys. Last snake standing wins.</span>
             <label for="modeSelect">CHOOSE YOUR CHALLENGE</label>
             <select id="modeSelect" aria-describedby="modeHint modeHelp">
@@ -88,6 +90,8 @@
                 <tr><th scope="row">Rabbit</th><td id="rabbitCount">0</td><td id="rabbitTarget">10</td></tr>
                 <tr><th scope="row">Frog</th><td id="frogCount">0</td><td id="frogTarget">10</td></tr>
                 <tr class="golden-catches"><th scope="row">★ Golden food (+5 points)</th><td id="goldenCount">0</td><td>Bonus only</td></tr>
+                <tr><th scope="row">🍄 Mushrooms (+50 points)</th><td id="mushroomCount">0</td><td>Reverses controls</td></tr>
+                <tr><th scope="row">🌿 Healing herbs</th><td id="herbCount">0</td><td>Restores controls</td></tr>
               </tbody>
               <tfoot><tr><th scope="row">Total eaten</th><td id="totalEaten">0</td><td>Per round</td></tr></tfoot>
             </table>
@@ -117,7 +121,7 @@
       </div>
 
       <div class="player-strip"><span class="player-identity">PLAYING <img class="avatar-image player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong></span><span class="opponent-identity" id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong></span><span>CHAMPION <strong id="bestName">No record yet</strong></span><span>PREY <strong id="preyName">Rat</strong></span></div>
-      <div class="golden-notice"><span aria-hidden="true">★</span><strong>GOLDEN FOOD</strong><span id="goldenStatus" data-active="false">Appears randomly during play · catch it for +5 points</span></div>
+      <div class="golden-notice"><span aria-hidden="true">★</span><strong>GOLDEN FOOD</strong><span id="goldenStatus" data-active="false">Appears randomly during play · catch it for +5 points</span><span class="mushroom-status" id="mushroomStatus">🍄 4 · +50</span><span class="control-status" id="controlStatus" data-reversed="false" hidden></span></div>
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Use arrow keys or W A S D to steer. Catch rats, rabbits, and frogs. Avoid your body, solid walls, barriers, and rocks. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay">

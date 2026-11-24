@@ -7,6 +7,7 @@ const { SnakeGame } = require('../snake-engine.js');
 const { SnakeAI } = require('../snake-ai.js');
 const { SnakeSkins } = require('../snake-skins.js');
 const { SnakeRenderer } = require('../snake-renderer.js');
+const { SnakeItemsRenderer } = require('../snake-items-renderer.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
 // Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
@@ -84,6 +85,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     SnakeAI,
     SnakeSkins,
     SnakeRenderer,
+    SnakeItemsRenderer,
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => ({ matches: true }), devicePixelRatio: 1,
@@ -497,6 +499,103 @@ function eat(g) {
   g.engine.food = { x: g.engine.snake[0].x + 1, y: g.engine.snake[0].y };
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
 }
+
+function eatMushroom(g, playerIndex = 0) {
+  g.engine.mushrooms = [g.engine.nextHead(g.engine.players[playerIndex])];
+  g.engine.food = { x: 20, y: 18 };
+  g.engine.extraFoods = [];
+  g.engine.goldenDelay = 10000;
+  for (const time of [0, 200, 400, 600, 650]) g.frame(time);
+}
+
+test('mushroom catch updates score, records, warning and cheering; herb cures without scoring', () => {
+  const g = load();
+  assert.equal(g.engine.mushrooms.length, 4);
+  assert.equal(g.element('controlStatus').hidden, true);
+  g.click('playButton');
+  eatMushroom(g);
+  assert.equal(g.element('score').textContent, '50');
+  assert.equal(g.element('best').textContent, '50');
+  assert.equal(g.element('mushroomCount').textContent, '1');
+  assert.equal(g.element('controlStatus').hidden, false);
+  assert.match(g.element('controlStatus').textContent, /P1 REVERSED.*5s/);
+  assert.match(g.element('announcer').textContent, /Controls reversed/);
+  assert.match(g.element('friendMessage').textContent, /Mushroom! \+50/);
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v2')), { score: 50, name: 'Alex' });
+  g.click('pauseButton');
+  const frozen = JSON.stringify(g.engine);
+  g.frame(4000);
+  assert.equal(JSON.stringify(g.engine), frozen, 'pause freezes the effect and herb delay');
+  g.engine.players[0].herbReadyAt = g.engine.elapsedMs;
+  g.engine.herbs = [g.engine.nextHead(g.engine.players[0])];
+  g.click('playButton');
+  g.frame(5000);
+  g.frame(5200);
+  assert.equal(g.element('score').textContent, '50');
+  assert.equal(g.element('herbCount').textContent, '1');
+  assert.equal(g.element('controlStatus').hidden, true);
+  assert.match(g.element('announcer').textContent, /Normal controls restored/);
+  assert.equal(g.engine.players[0].controlsReversed, false);
+});
+
+test('mushrooms reverse WASD, arrows, touch buttons and swipes consistently', () => {
+  const g = load();
+  g.click('playButton');
+  eatMushroom(g);
+  for (const [key, expected] of [['ArrowUp', 'down'], ['w', 'down'], ['ArrowDown', 'up'], ['s', 'up'], ['ArrowLeft', 'right'], ['a', 'right'], ['ArrowRight', 'left'], ['d', 'left']]) {
+    g.engine.direction = ['left', 'right'].includes(expected) ? 'up' : 'right';
+    g.engine.turns = [];
+    g.key(key);
+    assert.deepEqual(g.engine.turns, [expected], key);
+  }
+  g.engine.direction = 'up';
+  g.engine.turns = [];
+  g.click('p0-leftButton');
+  assert.deepEqual(g.engine.turns, ['right']);
+  g.engine.direction = 'right';
+  g.engine.turns = [];
+  const handlers = g.element('board').listeners;
+  handlers.pointerdown({ isPrimary: true, pointerId: 1, clientX: 100, clientY: 100 });
+  handlers.pointermove({ pointerId: 1, clientX: 100, clientY: 60 });
+  assert.deepEqual(g.engine.turns, ['down']);
+  g.key(' ');
+  assert.equal(g.state(), 'paused', 'pause is never inverted');
+  g.key('r');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.engine.players[0].controlsReversed, false);
+  assert.equal(g.engine.mushrooms.length, 4);
+  assert.equal(g.engine.herbs.length, 0);
+});
+
+test('local versus applies reversed controls only to the affected player', () => {
+  const g = load({ playerCount: null });
+  g.click('playButton');
+  eatMushroom(g);
+  g.key('w');
+  g.key('ArrowUp');
+  assert.deepEqual(g.engine.players[0].turns, ['down']);
+  assert.deepEqual(g.engine.players[1].turns, ['up']);
+  g.engine.players[1].controlsReversed = true;
+  g.engine.players[1].herbReadyAt = g.engine.elapsedMs + 5000;
+  g.engine.players[1].turns = [];
+  g.key('ArrowUp');
+  assert.deepEqual(g.engine.players[1].turns, ['down']);
+});
+
+test('AI mushroom bonuses never replace the human best record', () => {
+  const g = load({ playerCount: null });
+  g.element('playersSelect').value = 'ai';
+  g.element('playersSelect').listeners.change();
+  g.click('playButton');
+  Object.assign(g.engine.players[1], { snake: [{ x: 5, y: 5 }], direction: 'right' });
+  g.engine.mushrooms = [{ x: 6, y: 5 }];
+  // Trap alternate routes so the bot must cross the mushroom rather than a wall.
+  g.engine.obstacles = [{ x: 5, y: 4, type: 'wall' }, { x: 5, y: 6, type: 'wall' }];
+  for (const time of [0, 200, 400, 600, 650]) g.frame(time);
+  assert.equal(g.engine.players[1].score, 50);
+  assert.equal(g.element('best').textContent, '00');
+  assert.match(g.element('aiStandings').textContent, /AI 1: 50 points.*reversed/);
+});
 
 test('UI starts, moves, pauses without advancing, resumes and restarts', () => {
   const g = load();

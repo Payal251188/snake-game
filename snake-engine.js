@@ -7,27 +7,34 @@
   };
   const same = (a, b) => a.x === b.x && a.y === b.y;
   const animals = ['rat', 'rabbit', 'frog'];
+  const opposite = { up: 'down', down: 'up', left: 'right', right: 'left' };
+  const herbDelayMs = 5000;
 
   class SnakeGame {
-    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1 } = {}) {
+    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0 } = {}) {
       if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 6 || rows < 6) {
         throw new RangeError('The board must be at least 6 × 6 cells.');
       }
       this.columns = columns;
       this.rows = rows;
       this.random = random;
-      this.reset({ mode, playerCount, aiCount, foodCount });
+      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount });
     }
 
-    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount } = {}) {
+    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount } = {}) {
       if (!['classic', 'obstacles', 'maze'].includes(mode)) throw new RangeError('Unknown game mode.');
       if (![1, 2].includes(playerCount)) throw new RangeError('Choose one or two players.');
       if (!Number.isInteger(aiCount) || aiCount < 0 || aiCount > 3 || (aiCount > 0 && playerCount !== 1)) throw new RangeError('AI Arena supports one human and up to three bots.');
       if (!Number.isInteger(foodCount) || foodCount < 1 || foodCount > 10) throw new RangeError('Choose between one and ten food items.');
+      if (!Number.isInteger(mushroomCount) || mushroomCount < 0 || mushroomCount > 4) throw new RangeError('Choose between zero and four mushrooms.');
       this.mode = mode;
       this.playerCount = playerCount;
       this.aiCount = aiCount;
       this.foodCount = foodCount;
+      this.mushroomCount = mushroomCount;
+      this.mushrooms = [];
+      this.herbs = [];
+      this.elapsedMs = 0;
       this.food = null;
       this.extraFoods = [];
       this.endReason = null;
@@ -48,6 +55,7 @@
           snake: Array.from({ length: 3 }, (__, i) => ({ x: headX + (facingRight ? -i : i), y: headY })),
           direction: facingRight ? 'right' : 'left', turns: [], score: 0,
           ai: index >= playerCount, alive: true,
+          controlsReversed: false, herbReadyAt: null, mushroomsEaten: 0, herbsEaten: 0,
           eaten: { rat: 0, rabbit: 0, frog: 0 }, goldenEaten: 0, collision: null,
         };
       });
@@ -56,6 +64,7 @@
       this.placeFood();
       this.replenishFood();
       this.scheduleGoldenFood();
+      this.updateConsumables();
     }
 
     // Preserve the solo API for callers that address player one directly.
@@ -77,7 +86,9 @@
     }
     get preyCaught() { return Object.values(this.totalEaten).reduce((sum, count) => sum + count, 0); }
     get goldenCaught() { return this.players.reduce((sum, player) => sum + player.goldenEaten, 0); }
-    get totalCatches() { return this.preyCaught + this.goldenCaught; }
+    get mushroomCaught() { return this.players.reduce((sum, player) => sum + player.mushroomsEaten, 0); }
+    get herbsCaught() { return this.players.reduce((sum, player) => sum + player.herbsEaten, 0); }
+    get totalCatches() { return this.preyCaught + this.goldenCaught + this.mushroomCaught + this.herbsCaught; }
     get wraps() { return this.mode === 'classic'; }
     get livingPlayers() { return this.players.filter((player) => player.alive); }
     get foods() {
@@ -137,8 +148,41 @@
       return true;
     }
 
+    // Input commands are inverted; turn() remains the physical-direction API used by AI.
+    steer(direction, playerIndex = 0) {
+      const player = this.players[playerIndex];
+      if (!Object.hasOwn(directions, direction)) return false;
+      return this.turn(player?.controlsReversed ? opposite[direction] : direction, playerIndex);
+    }
+
+    herbWaitMs(player) {
+      return player.controlsReversed ? Math.max(0, player.herbReadyAt - this.elapsedMs) : 0;
+    }
+
+    updateConsumables() {
+      const ready = this.livingPlayers.filter((player) => player.controlsReversed && this.herbWaitMs(player) === 0).length;
+      this.herbs.splice(ready); // Remove unneeded cures after recovery or elimination.
+      while (this.herbs.length < ready) {
+        let empty = this.emptyCells([...this.foods, this.goldenFood]);
+        if (!empty.length && this.mushrooms.length) {
+          this.mushrooms.pop(); // A needed cure takes priority on a crowded board.
+          empty = this.emptyCells([...this.foods, this.goldenFood]);
+        }
+        const cell = this.pickCell(empty);
+        if (!cell) break;
+        this.herbs.push(cell);
+      }
+      if (this.mushrooms.length >= this.mushroomCount) return;
+      const empty = this.emptyCells([...this.foods, this.goldenFood]);
+      while (this.mushrooms.length < this.mushroomCount && empty.length) {
+        const cell = this.pickCell(empty);
+        empty.splice(empty.indexOf(cell), 1);
+        this.mushrooms.push(cell);
+      }
+    }
+
     emptyCells(reserved = []) {
-      const occupied = new Set([...this.livingPlayers.flatMap((player) => player.snake), ...this.obstacles, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
+      const occupied = new Set([...this.livingPlayers.flatMap((player) => player.snake), ...this.obstacles, ...this.mushrooms, ...this.herbs, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
       const empty = [];
       for (let y = 0; y < this.rows; y++) {
         for (let x = 0; x < this.columns; x++) {
@@ -207,7 +251,9 @@
         const head = this.nextHead(player);
         const prey = foods.find((food) => same(head, food));
         const eatsGolden = this.goldenFood !== null && same(head, this.goldenFood);
-        return { head, prey, eatsGolden, body: prey || eatsGolden ? player.snake : player.snake.slice(0, -1) };
+        const mushroom = this.mushrooms.find((cell) => same(cell, head));
+        const herb = this.herbs.find((cell) => same(cell, head));
+        return { head, prey, eatsGolden, mushroom, herb, body: prey || eatsGolden || mushroom ? player.snake : player.snake.slice(0, -1) };
       });
     }
 
@@ -240,6 +286,8 @@
       if (this.status !== 'playing') return 'idle';
       this.lastEater = null;
       this.lastCatches = [];
+      this.elapsedMs += this.interval;
+      this.updateConsumables();
       const moves = this.predictMoves();
       this.resolveCollisions(moves);
       const crashed = this.players.filter((player) => player.alive && player.collision);
@@ -260,19 +308,35 @@
           return;
         }
         player.snake.unshift(move.head);
-        if (move.prey || move.eatsGolden) {
-          const type = move.eatsGolden ? 'golden' : move.prey.type;
-          const points = move.eatsGolden ? 5 : 1;
-          if (move.eatsGolden) player.goldenEaten++;
+        const grows = move.prey || move.eatsGolden || move.mushroom;
+        if (!grows) player.snake.pop();
+        if (grows || move.herb) {
+          const type = move.mushroom ? 'mushroom' : move.herb ? 'herb' : move.eatsGolden ? 'golden' : move.prey.type;
+          const points = move.mushroom ? 50 : move.herb ? 0 : move.eatsGolden ? 5 : 1;
+          if (move.mushroom) {
+            player.mushroomsEaten++;
+            if (!player.controlsReversed) {
+              player.controlsReversed = true;
+              player.herbReadyAt = this.elapsedMs + herbDelayMs;
+              player.turns = []; // Discard input queued before the effect changed.
+            }
+          } else if (move.herb) {
+            player.herbsEaten++;
+            player.controlsReversed = false;
+            player.herbReadyAt = null;
+            player.turns = [];
+          } else if (move.eatsGolden) player.goldenEaten++;
           else player.eaten[type]++;
           player.score += points;
           this.lastEater = index;
           this.lastCatches.push({ playerIndex: index, type, points });
-        } else player.snake.pop();
+        }
       });
       const successfulMoves = moves.filter((move, index) => move && !this.players[index].collision);
       const consumed = successfulMoves.filter((move) => move.prey).map((move) => move.prey);
       const caughtGolden = successfulMoves.some((move) => move.eatsGolden);
+      this.mushrooms = this.mushrooms.filter((cell) => !successfulMoves.some((move) => move.mushroom && same(cell, move.mushroom)));
+      this.herbs = this.herbs.filter((cell) => !successfulMoves.some((move) => move.herb && same(cell, move.herb)));
       if (caughtGolden) {
         this.goldenFood = null;
         this.goldenTicks = 0;
@@ -280,8 +344,9 @@
       }
       if (consumed.some((food) => this.food && same(food, this.food))) this.food = null;
       this.extraFoods = this.extraFoods.filter((food) => !consumed.some((eaten) => same(food, eaten)));
-      if (consumed.length || crashed.length) this.replenishFood();
+      if (this.lastCatches.length || crashed.length) this.replenishFood();
       if (!caughtGolden) this.updateGoldenFood();
+      this.updateConsumables();
 
       if (this.aiCount) {
         if (!this.players[0].alive) {
@@ -298,7 +363,7 @@
         }
       }
       if (this.lastCatches.length) {
-        if (!this.foods.length && !this.goldenFood) {
+        if (!this.foods.length && !this.goldenFood && !this.mushrooms.length && !this.herbs.length) {
           this.status = 'won';
           this.endReason = 'filled';
           this.winner = this.scoreWinner();

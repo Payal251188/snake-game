@@ -45,7 +45,10 @@
   function chooseDirection(game, playerIndex, reserved = new Set()) {
     const player = game.players[playerIndex];
     if (!player || !player.alive || game.status !== 'playing') return null;
-    const targets = new Set([...game.foods, game.goldenFood].filter(Boolean).map(key));
+    const ordinaryFood = [...game.foods, game.goldenFood].filter(Boolean);
+    const targets = new Set((player.controlsReversed && game.herbs.length ? game.herbs : ordinaryFood).map(key));
+    const growthCells = new Set([...ordinaryFood, ...game.mushrooms].map(key));
+    const mushrooms = new Set(game.mushrooms.map(key));
     const occupied = new Set([
       ...game.obstacles,
       ...game.livingPlayers.flatMap((other) => other.snake),
@@ -62,12 +65,13 @@
       if (!inside(game, next) || reserved.has(id)) continue;
       const blocked = new Set(occupied);
       // Only our own non-growing tail is guaranteed to vacate this step.
-      if (!targets.has(id)) blocked.delete(key(player.snake.at(-1)));
+      if (!growthCells.has(id)) blocked.delete(key(player.snake.at(-1)));
       if (blocked.has(id)) continue;
+      for (const cell of mushrooms) if (cell !== id) blocked.add(cell);
       for (const cell of reserved) blocked.add(cell);
       const { area, foodDistance } = inspectSpace(game, next, blocked, targets);
       const enoughSpace = area >= player.snake.length + 2;
-      const score = (enoughSpace ? 10000 : area * 100) - (threats.has(id) ? 1000 : 0)
+      const score = (enoughSpace ? 10000 : area * 100) - (threats.has(id) ? 1000 : 0) - (mushrooms.has(id) ? 2000 : 0)
         - foodDistance * 10 + Math.min(area, 100) * 0.1 + (direction === player.direction ? 0.01 : 0);
       if (!best || score > best.score) best = { direction, score };
     }
@@ -81,6 +85,7 @@
     game.players.forEach((player, index) => {
       if (!player.ai || !player.alive) return;
       const direction = chooseDirection(game, index, reserved);
+      // AI chooses physical directions, compensating for inversion just as a human can.
       game.turn(direction, index);
       reserved.add(key(game.nextHead(player, player.turns[0] || player.direction)));
     });

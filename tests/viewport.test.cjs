@@ -164,6 +164,78 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         }
       });
     }
+    for (const [width, height] of [[1366, 768], [320, 568]]) {
+      await t.test(`mushroom inversion and delayed herb recovery · ${width}×${height}`, async () => {
+        const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
+        try {
+          const page = await context.newPage();
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          await page.addInitScript(() => { Math.random = () => 0; });
+          await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+          await page.locator('#playerInput').fill('Alex');
+          await page.locator('#settingsSummary').click();
+          await page.locator('#playersSelect').selectOption('1');
+          await page.locator('#modeSelect').selectOption('classic');
+          await page.keyboard.press('Escape');
+          // Test-only placement/observation: no production test hooks or altered input rules.
+          await page.evaluate(() => {
+            const tick = SnakeGame.prototype.tick;
+            let first = true;
+            SnakeGame.prototype.tick = function () {
+              if (first) {
+                this.food = { x: 0, y: 0 };
+                this.extraFoods = [];
+                this.mushrooms = [this.nextHead(this.players[0])];
+                this.goldenDelay = 10000;
+                first = false;
+              }
+              if (window.__collectHerb) {
+                this.herbs = [this.nextHead(this.players[0])];
+                window.__collectHerb = false;
+              }
+              const previous = { ...this.players[0].snake[0] };
+              const result = tick.call(this);
+              window.__effectSnapshot = {
+                previous, head: { ...this.players[0].snake[0] }, direction: this.players[0].direction,
+                reversed: this.players[0].controlsReversed, wait: this.herbWaitMs(this.players[0]),
+                elapsed: this.elapsedMs, herbCount: this.herbs.length,
+              };
+              return result;
+            };
+          });
+          await page.locator('#playButton').click();
+          await page.waitForFunction(() => window.__effectSnapshot?.reversed);
+          assert.equal(await page.locator('#score').textContent(), '50');
+          assert.equal(await page.locator('#controlStatus').isVisible(), true);
+          assert.match(await page.locator('#controlStatus').textContent(), /REVERSED/);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth), true);
+          await page.keyboard.press('ArrowDown');
+          await page.waitForFunction(() => window.__effectSnapshot.direction === 'up');
+          const inverted = await page.evaluate(() => window.__effectSnapshot);
+          assert.equal(inverted.head.y, (inverted.previous.y + 19) % 20, 'Down actually moves up');
+          await page.locator('#pauseButton').click();
+          const paused = await page.evaluate(() => window.__effectSnapshot.elapsed);
+          await page.waitForTimeout(150);
+          assert.equal(await page.evaluate(() => window.__effectSnapshot.elapsed), paused);
+          await page.locator('#playButton').click();
+          await page.waitForFunction(() => window.__effectSnapshot.herbCount > 0, null, { timeout: 10000 });
+          assert.match(await page.locator('#controlStatus').textContent(), /herb ready/);
+          await page.evaluate(() => { window.__collectHerb = true; });
+          await page.waitForFunction(() => !window.__effectSnapshot.reversed);
+          assert.equal(await page.locator('#score').textContent(), '50');
+          assert.equal(await page.locator('#controlStatus').isVisible(), false);
+          await page.keyboard.press('ArrowRight');
+          await page.waitForFunction(() => window.__effectSnapshot.direction === 'right');
+          const cured = await page.evaluate(() => window.__effectSnapshot);
+          assert.equal(cured.head.x, (cured.previous.x + 1) % 24, 'Right moves right after recovery');
+          assert.equal(await page.locator('#snakeFriends').isVisible(), true);
+          assert.deepEqual(errors, []);
+        } finally {
+          await context.close();
+        }
+      });
+    }
   } finally {
     await browser.close();
   }
