@@ -51,10 +51,10 @@ h1 em { font-style: normal; color: #638b70; }
 .score-group[hidden], .player-strip > span[hidden], .touch-controls[hidden], .opponent-entry[hidden] { display: none; }
 .opponent-score .score-value, .opponent-score .score-label { color: var(--orange); }
 .opponent-score .dot { background: var(--orange); }
-.game-shell[data-players='2'] .scoreboard { gap: clamp(12px, 3vw, 36px); }
-.game-shell[data-players='2'] .match-label { display: none; }
-.game-shell[data-players='2'] .best-group .score-value { font-size: 28px; }
-.game-shell[data-players='2'] .best-group { gap: 10px; }
+.game-shell:is([data-players='2'], [data-players='ai']) .scoreboard { gap: clamp(12px, 3vw, 36px); }
+.game-shell:is([data-players='2'], [data-players='ai']) .match-label { display: none; }
+.game-shell:is([data-players='2'], [data-players='ai']) .best-group .score-value { font-size: 28px; }
+.game-shell:is([data-players='2'], [data-players='ai']) .best-group { gap: 10px; }
 .player-strip .opponent-identity strong { color: var(--orange); }
 .best-group .score-value { color: var(--orange); }
 .best-group .score-label { color: #b8a89a; }
@@ -110,6 +110,9 @@ h1 em { font-style: normal; color: #638b70; }
 .mode-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 20px; background: #14232a; border-bottom: 1px solid #ffffff16; }
 .mode-controls label { font-size: 10px; font-weight: 700; letter-spacing: 1.4px; color: var(--mint); }
 .mode-controls select { max-width: 100%; min-height: 40px; padding: 8px; border: 1px solid #6f9787; border-radius: 5px; background: #20383d; color: #f2f4eb; font: inherit; font-size: 12px; cursor: pointer; }
+.ai-settings { display: inline-flex; align-items: center; gap: 8px; }
+.ai-settings[hidden], .ai-standings[hidden] { display: none; }
+.ai-standings { font-size: 12px; line-height: 1.6; padding: 12px; border: 1px solid #b8c5b4; border-radius: 8px; }
 .mode-controls select:disabled { opacity: .7; cursor: default; }
 #modeHint { flex: 1 1 220px; font-size: 12px; line-height: 1.5; color: #e3c6a7; }
 .mode-help { flex-basis: 100%; font-size: 10px; color: #adc1c0; }
@@ -174,6 +177,15 @@ kbd { font: 9px ui-monospace, monospace; display: inline-block; padding: 2px 5px
 .page-footer > span:last-child { display: flex; align-items: center; gap: 15px; }
 .page-footer > span:last-child > span { font-size: 22px; color: #71846b; }
 .touch-controls { display: none; }
+/* Cosmetic controls stay inside Settings, never shrinking the play area. */
+.skin-picker { margin: 16px 0; padding: 16px; border: 1px solid #b8c5b4; border-radius: 10px; background: #e9eee2; }
+.skin-picker-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.skin-picker h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.skin-picker p { margin: 6px 0 0; color: #52634c; font-size: 11px; line-height: 1.5; }
+.skin-select-wrap { display: grid; gap: 4px; }
+.skin-select-wrap label { font-size: 11px; font-weight: 600; }
+.skin-select-wrap select { min-height: 44px; max-width: 100%; padding: 8px 12px; border: 1px solid #789071; border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.skin-preview { width: 100%; height: auto; margin-top: 12px; border-radius: 8px; background: var(--court); touch-action: auto; }
 /* Secondary tools scroll independently; the arena always keeps its viewport space. */
 .game-settings { margin-left: auto; }
 .game-settings summary { padding: 12px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; font-weight: 600; letter-spacing: .6px; }
@@ -205,10 +217,10 @@ kbd { font: 9px ui-monospace, monospace; display: inline-block; padding: 2px 5px
   .score-group { gap: 12px; }
   .score-label { font-size: 8px; letter-spacing: .6px; }
   .score-value { font-size: 32px; }
-  .game-shell[data-players='2'] .scoreboard { padding: 0 12px; gap: 14px; }
-  .game-shell[data-players='2'] .score-group { flex-direction: column; gap: 5px; align-items: flex-start; }
-  .game-shell[data-players='2'] .best-group { align-items: flex-end; }
-  .game-shell[data-players='2'] .best-group .score-value { font-size: 24px; }
+  .game-shell:is([data-players='2'], [data-players='ai']) .scoreboard { padding: 0 12px; gap: 14px; }
+  .game-shell:is([data-players='2'], [data-players='ai']) .score-group { flex-direction: column; gap: 5px; align-items: flex-start; }
+  .game-shell:is([data-players='2'], [data-players='ai']) .best-group { align-items: flex-end; }
+  .game-shell:is([data-players='2'], [data-players='ai']) .best-group .score-value { font-size: 24px; }
   .player-strip { padding: 4px 12px; gap: 3px 10px; font-size: 8px; }
   .player-strip strong { font-size: 10px; margin-left: 4px; }
   .player-avatar { width: 22px; height: 22px; }

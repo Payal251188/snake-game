@@ -3,13 +3,17 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2 });
+  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5 });
   const storageKey = 'snake-club-record-v2';
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
+  const skinKey = 'snake-club-skin-v1';
   const modeKey = 'snake-club-mode-v1';
   const playersKey = 'snake-club-players-v1';
   const opponentKey = 'snake-club-player-two-v1';
+  const aiCountKey = 'snake-club-ai-count-v1';
+  const foodKey = 'snake-club-food-count-v1';
+  let preferredAICount = 3;
   const modes = {
     classic: { name: 'Classic', hint: 'Edges wrap. Avoid your own body.' },
     obstacles: { name: 'Obstacles', hint: 'Solid edges. Dodge stone walls, striped barriers, and rocks.' },
@@ -17,6 +21,7 @@
   };
   const avatars = { mint: 'Mint', peach: 'Peach', olive: 'Olive' };
   let playerAvatar = 'mint';
+  let playerSkin = 'classic';
   const cleanName = (value) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let state = 'ready';
@@ -24,8 +29,10 @@
   let bestName = '';
   let playerName = '';
   let opponentName = 'Player 2';
-  const nameFor = (index) => index === 0 ? playerName || 'Player 1' : opponentName;
-  const steeringHint = () => engine.playerCount === 2
+  const nameFor = (index) => index === 0 ? playerName || 'Player 1' : engine.players[index]?.ai ? `AI ${index}` : opponentName;
+  const steeringHint = () => engine.aiCount
+    ? `Use WASD or arrow keys. Compete against ${engine.aiCount} AI snakes. Last snake standing wins; crashed bots disappear.`
+    : engine.playerCount === 2
     ? 'Player 1: W A S D. Player 2: arrow keys. Avoid both snakes. Last snake standing wins; simultaneous crashes draw.'
     : 'Use arrow keys or W A S D to steer.';
   let startingBest = 0;
@@ -82,8 +89,14 @@
     }
     playerName = cleanName(localStorage.getItem(playerKey));
     opponentName = cleanName(localStorage.getItem(opponentKey)) || 'Player 2';
+    const savedAI = Number(localStorage.getItem(aiCountKey));
+    if ([2, 3].includes(savedAI)) preferredAICount = savedAI;
     const savedPlayers = localStorage.getItem(playersKey);
-    if (savedPlayers === '1' || savedPlayers === '2') engine.reset({ playerCount: Number(savedPlayers) });
+    if (savedPlayers === 'ai') engine.reset({ playerCount: 1, aiCount: preferredAICount });
+    else if (savedPlayers === '1' || savedPlayers === '2') engine.reset({ playerCount: Number(savedPlayers) });
+    const savedFood = Number(localStorage.getItem(foodKey));
+    if ([1, 5, 10].includes(savedFood)) engine.reset({ foodCount: savedFood });
+    playerSkin = SnakeSkins.get(localStorage.getItem(skinKey)).id;
     const savedAvatar = localStorage.getItem(avatarKey);
     if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
     const savedMode = localStorage.getItem(modeKey);
@@ -113,26 +126,67 @@
   $('playerInput').addEventListener('input', updateAvatarPicker);
   updateAvatarPicker();
 
+  function updateSkinUI() {
+    const skin = SnakeSkins.get(playerSkin);
+    $('skinSelect').value = skin.id;
+    canvas.dataset.skin = skin.id;
+    $('skinDescription').textContent = `${skin.description} ${canSave ? 'Saved in this browser.' : 'Available for this session.'}`;
+    const preview = $('skinPreview');
+    preview.dataset.skin = skin.id;
+    preview.setAttribute('aria-label', `${skin.name} snake preview. ${skin.description}`);
+    const previewContext = preview.getContext('2d');
+    previewContext.clearRect(0, 0, preview.width, preview.height);
+    previewContext.fillStyle = '#101e25';
+    previewContext.fillRect(0, 0, preview.width, preview.height);
+    const sample = {
+      direction: 'right',
+      snake: [
+        { x: 13, y: 1 }, { x: 12, y: 1 }, { x: 11, y: 1 }, { x: 10, y: 1 },
+        { x: 9, y: 1 }, { x: 8, y: 1 }, { x: 8, y: 2 }, { x: 7, y: 2 },
+        { x: 6, y: 2 }, { x: 5, y: 2 }, { x: 4, y: 2 }, { x: 3, y: 2 },
+      ],
+    };
+    SnakeRenderer.draw(previewContext, { left: 40, top: 0, cell: 40, player: sample, skin });
+  }
+  $('skinSelect').addEventListener('change', () => {
+    const selected = $('skinSelect').value;
+    if (!SnakeSkins.has(selected)) { updateSkinUI(); return; }
+    playerSkin = selected;
+    if (canSave) {
+      try { localStorage.setItem(skinKey, playerSkin); } catch { storageUnavailable(); }
+    }
+    updateMode();
+    draw(0);
+    announce(`${SnakeSkins.get(playerSkin).name} skin applied to Player 1. Gameplay is unchanged.`);
+  });
+
   function updateMode() {
+    updateSkinUI();
     $('modeSelect').value = engine.mode;
     document.querySelector('.game-shell').dataset.mode = engine.mode;
-    document.querySelector('.game-shell').dataset.players = String(engine.playerCount);
-    $('playersSelect').value = String(engine.playerCount);
+    document.querySelector('.game-shell').dataset.players = engine.aiCount ? 'ai' : String(engine.playerCount);
+    $('playersSelect').value = engine.aiCount ? 'ai' : String(engine.playerCount);
+    $('aiSettings').hidden = !engine.aiCount;
+    $('aiCountSelect').value = String(preferredAICount);
+    $('foodSelect').value = String(engine.foodCount);
+    $('aiStandings').hidden = !engine.aiCount;
     const dual = engine.playerCount === 2;
     $('opponentEntry').hidden = !dual;
     $('opponentInput').required = dual;
-    $('opponentScoreGroup').hidden = !dual;
-    $('opponentIdentity').hidden = !dual;
+    $('opponentScoreGroup').hidden = !dual && !engine.aiCount;
+    $('opponentIdentity').hidden = !dual && !engine.aiCount;
+    $('opponentScoreLabel').textContent = engine.aiCount ? 'AI LEFT' : 'P2 SCORE';
+    $('opponentControlsLabel').textContent = engine.aiCount ? 'AI ARENA' : 'P2 · ARROWS';
     $('playerTwoControls').hidden = !dual;
     $('playerOneControlsLabel').textContent = dual ? 'P1 · WASD' : 'STEER';
     $('scoreLabel').textContent = dual ? 'P1 SCORE' : 'YOUR SCORE';
-    $('playerInputLabel').textContent = dual ? 'Player 1 · green snake · WASD' : 'Who’s playing?';
+    $('playerInputLabel').textContent = dual ? `Player 1 · ${SnakeSkins.get(playerSkin).name} · WASD` : 'Who’s playing?';
     $('controlsHint').textContent = steeringHint();
     $('modeHint').textContent = modes[engine.mode].hint;
     if (state === 'ready') {
       $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
-      $('overlayTitle').textContent = dual ? 'Two snakes. One arena.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
-      $('overlayText').textContent = `${modes[engine.mode].hint}\n${dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic in Settings, then play.'}`;
+      $('overlayTitle').textContent = engine.aiCount ? `You vs ${engine.aiCount} AI snakes.` : dual ? 'Two snakes. One arena.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
+      $('overlayText').textContent = `${modes[engine.mode].hint}\n${engine.aiCount ? steeringHint() : dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic in Settings, then play.'}`;
     }
     canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
@@ -151,16 +205,44 @@
   });
   $('playersSelect').addEventListener('change', () => {
     if (state === 'playing' || state === 'paused') return;
-    const playerCount = Number($('playersSelect').value);
-    if (![1, 2].includes(playerCount)) return;
-    engine.reset({ playerCount });
+    const selection = $('playersSelect').value;
+    if (!['1', '2', 'ai'].includes(selection)) return;
+    const playerCount = selection === 'ai' ? 1 : Number(selection);
+    engine.reset({ playerCount, aiCount: selection === 'ai' ? preferredAICount : 0 });
     if (canSave) {
-      try { localStorage.setItem(playersKey, String(playerCount)); } catch { storageUnavailable(); }
+      try { localStorage.setItem(playersKey, selection); } catch { storageUnavailable(); }
     }
     updateMode();
     updateScores();
     draw(0);
-    announce(`${playerCount === 2 ? 'Two-player versus' : 'Solo'} selected. ${steeringHint()}`);
+    announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player versus' : 'Solo'} selected. ${steeringHint()}`);
+  });
+  $('aiCountSelect').addEventListener('change', () => {
+    if (state === 'playing' || state === 'paused') return;
+    const count = Number($('aiCountSelect').value);
+    if (![2, 3].includes(count)) return;
+    preferredAICount = count;
+    if (engine.aiCount) engine.reset({ aiCount: count });
+    if (canSave) {
+      try { localStorage.setItem(aiCountKey, String(count)); } catch { storageUnavailable(); }
+    }
+    updateMode();
+    updateScores();
+    draw(0);
+    announce(`${count} AI opponents selected.`);
+  });
+  $('foodSelect').addEventListener('change', () => {
+    if (state === 'playing' || state === 'paused') return;
+    const foodCount = Number($('foodSelect').value);
+    if (![1, 5, 10].includes(foodCount)) return;
+    engine.reset({ foodCount });
+    if (canSave) {
+      try { localStorage.setItem(foodKey, String(foodCount)); } catch { storageUnavailable(); }
+    }
+    updateMode();
+    updateScores();
+    draw(0);
+    announce(`${foodCount} food items on the board.`);
   });
   updateMode();
 
@@ -174,8 +256,11 @@
   }
   function updateScores() {
     $('score').textContent = format(engine.score);
-    $('opponentScore').textContent = format(engine.players[1]?.score || 0);
-    $('opponentName').textContent = opponentName;
+    const livingBots = engine.players.filter((player) => player.ai && player.alive).length;
+    $('opponentScore').textContent = format(engine.aiCount ? livingBots : engine.players[1]?.score || 0);
+    $('opponentName').textContent = engine.aiCount ? `${livingBots}/${engine.aiCount} alive` : opponentName;
+    $('aiStandings').textContent = engine.players.filter((player) => player.ai)
+      .map((player, index) => `AI ${index + 1}: ${player.score} points${player.alive ? '' : ' · eliminated'}`).join(' | ');
     $('best').textContent = format(best);
     $('playerName').textContent = playerName || '—';
     $('playerAvatar').hidden = !playerName;
@@ -183,7 +268,7 @@
     $('playerAvatar').setAttribute('src', `assets/avatar-${playerAvatar}.svg`);
     $('playerAvatar').setAttribute('alt', `${avatars[playerAvatar]} human face avatar`);
     $('bestName').textContent = bestName || 'No record yet';
-    $('preyName').textContent = engine.foodType || 'None';
+    $('preyName').textContent = engine.foods.length > 1 ? `${engine.foods.length} items` : engine.foodType || 'None';
     const speed = `${(160 / engine.interval).toFixed(1)}×`;
     $('pace').textContent = speed;
     $('level').textContent = String(engine.level);
@@ -213,6 +298,8 @@
     syncMusic();
     $('modeSelect').disabled = state === 'playing' || state === 'paused';
     $('playersSelect').disabled = state === 'playing' || state === 'paused';
+    $('aiCountSelect').disabled = state === 'playing' || state === 'paused';
+    $('foodSelect').disabled = state === 'playing' || state === 'paused';
     $('pauseButton').disabled = !['playing', 'paused'].includes(state);
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
@@ -408,13 +495,14 @@
   function advance() {
     const previousLevel = engine.level;
     const hadGoldenFood = Boolean(engine.goldenFood);
+    if (engine.aiCount) SnakeAI.steer(engine);
     const result = engine.tick();
     const caughtGolden = engine.lastCatches.some(({ type }) => type === 'golden');
     const bonusNotice = !hadGoldenFood && engine.goldenFood ? 'Golden food appeared! Catch the gold star for 5 bonus points.'
       : hadGoldenFood && !engine.goldenFood && !caughtGolden && result !== 'lost' ? 'Golden food expired. Watch for the next one!' : '';
-    updateGoldenStatus();
-    if (result === 'ate' || result === 'won') {
+    if (engine.lastCatches.length) {
       for (const { playerIndex } of engine.lastCatches) {
+        if (engine.players[playerIndex].ai) continue; // Bots never replace human records.
         const score = engine.players[playerIndex].score;
         if (score > best) {
           best = score;
@@ -433,14 +521,26 @@
       const catches = engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)} ${type === 'golden' ? 'caught golden food' : 'caught another bite'}! +${points}`);
       $('footerMessage').textContent = `${levelUp ? `Level ${engine.level}! ` : ''}${catches.join(' · ')}`;
       announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)}: ${type === 'golden' ? `Golden food! +${points} bonus points. ` : ''}Score ${engine.players[playerIndex].score}.`).join(' ')} Next prey: ${engine.foodType || 'none'}. ${bonusNotice}`);
-    } else if (bonusNotice) announce(bonusNotice);
+    } else {
+      updateScores();
+      if (bonusNotice) announce(bonusNotice);
+    }
     if (result === 'lost' || result === 'won') {
       const won = result === 'won';
       setState(won ? 'won' : 'over');
       if (won) tone(880, 0.25);
       else playGameOver();
       const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a rock', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
-      if (engine.playerCount === 2) {
+      if (engine.aiCount) {
+        const humanWon = engine.winner === 0;
+        const title = humanWon ? 'You win the AI Arena!' : engine.endReason === 'filled' && engine.winner === null ? 'It’s a draw!' : 'The AI got this round.';
+        const scores = engine.players.map((player, index) => `${nameFor(index)}: ${player.score}`).join(' · ');
+        const cause = engine.endReason === 'survival' ? 'You are the last snake standing.'
+          : engine.endReason === 'filled' ? 'The board is full. Highest surviving score wins.'
+          : `You ${reasons[engine.collision] || 'crashed'}.`;
+        showOverlay('AI ARENA COMPLETE', title, `${cause}\n${scores}`, 'REMATCH', 'or press space for a rematch');
+        announce(`${title} ${cause} ${scores}`);
+      } else if (engine.playerCount === 2) {
         const title = engine.winner === null ? 'It’s a draw!' : `${nameFor(engine.winner)} wins!`;
         const scores = `P1 ${playerName}: ${engine.players[0].score} · P2 ${opponentName}: ${engine.players[1].score}.`;
         const causes = won ? 'All open cells filled. Highest score wins.' : engine.players
@@ -471,13 +571,13 @@
     ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rotation, 0, Math.PI * 2); ctx.fill();
   }
 
-  function drawPrey(x, y, cell) {
+  function drawPrey(x, y, cell, type) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(cell, cell);
     // A warm halo keeps the small animals easy to spot against the court.
     ellipse(0, 0, 0.48, 0.46, '#f8b48722');
-    if (engine.foodType === 'frog') {
+    if (type === 'frog') {
       for (const side of [-1, 1]) {
         ellipse(side * 0.29, 0.18, 0.15, 0.19, '#79ad45', side * 0.65);
         ellipse(side * 0.23, -0.24, 0.13, 0.14, '#a8d95f');
@@ -489,7 +589,7 @@
         ellipse(side * 0.23, -0.29, 0.035, 0.05, '#172c23');
       }
     } else {
-      const rabbit = engine.foodType === 'rabbit';
+      const rabbit = type === 'rabbit';
       const fur = rabbit ? '#e4d7b9' : '#aaa59e';
       if (!rabbit) {
         ctx.strokeStyle = '#d99f99'; ctx.lineWidth = 0.055; ctx.lineCap = 'round';
@@ -535,92 +635,6 @@
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffe9a3';
     ctx.fillText('+5', 0, -0.55);
-    ctx.restore();
-  }
-
-  function drawSnake(left, top, cell, time, player, index) {
-    const orange = index === 1;
-    const points = player.snake.map(({ x, y }) => ({ x: left + (x + 0.5) * cell, y: top + (y + 0.5) * cell }));
-    const radius = (i) => cell * (0.025 + 0.3 * Math.min(1, (points.length - 1 - i) / 3));
-    ctx.lineCap = 'round';
-    // Connected, tapered body rather than separate square tiles.
-    for (let i = points.length - 1; i > 0; i--) {
-      const a = points[i]; const b = points[i - 1];
-      // Never draw a line across the whole court when the body wraps an edge.
-      if (Math.abs(a.x - b.x) > cell * 1.5 || Math.abs(a.y - b.y) > cell * 1.5) {
-        ellipse(a.x, a.y, radius(i), radius(i), orange ? '#d29052' : '#71a65c');
-        ellipse(b.x, b.y, radius(i - 1), radius(i - 1), orange ? '#d29052' : '#71a65c');
-        continue;
-      }
-      const angle = Math.atan2(b.y - a.y, b.x - a.x);
-      const nx = -Math.sin(angle); const ny = Math.cos(angle);
-      const ra = radius(i); const rb = radius(i - 1);
-      const skin = ctx.createLinearGradient(b.x - nx * rb, b.y - ny * rb, b.x + nx * rb, b.y + ny * rb);
-      skin.addColorStop(0, orange ? '#704024' : '#263d27'); skin.addColorStop(0.28, orange ? '#c87c42' : '#759250');
-      skin.addColorStop(0.52, orange ? '#ffd29a' : '#a7b975'); skin.addColorStop(0.8, orange ? '#d29052' : '#6f8947'); skin.addColorStop(1, orange ? '#754a2e' : '#334c2e');
-      ctx.fillStyle = skin;
-      ctx.beginPath();
-      ctx.moveTo(a.x + nx * ra, a.y + ny * ra); ctx.lineTo(b.x + nx * rb, b.y + ny * rb);
-      ctx.lineTo(b.x - nx * rb, b.y - ny * rb); ctx.lineTo(a.x - nx * ra, a.y - ny * ra);
-      ctx.closePath(); ctx.fill();
-      // Rounded joints and a narrowing tail keep the silhouette continuous.
-      ellipse(b.x, b.y, rb, rb, skin);
-      ellipse(a.x, a.y, ra, ra, skin);
-    }
-    for (let i = points.length - 1; i > 0; i--) {
-      const p = points[i]; const next = points[i - 1];
-      let dx = next.x - p.x; let dy = next.y - p.y;
-      if (Math.abs(dx) > cell * 1.5) dx = -Math.sign(dx) * cell;
-      if (Math.abs(dy) > cell * 1.5) dy = -Math.sign(dy) * cell;
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(dy, dx)); ctx.scale(cell, cell);
-      const r = radius(i) / cell;
-      // Irregular olive saddle markings, fine overlapping scales, pale flanks.
-      ellipse(0, 0, 0.21, r * 0.58, '#354a2eaa', i % 2 ? 0.22 : -0.22);
-      ctx.strokeStyle = '#d4d8a35e'; ctx.lineWidth = 0.014;
-      for (const side of [-1, 0, 1]) {
-        for (const offset of [-0.28, -0.09, 0.1, 0.29]) {
-          ctx.beginPath();
-          ctx.ellipse(offset + (side === 0 ? 0.05 : 0), side * r * 0.62, 0.09, Math.max(0.015, r * 0.25), 0, 0, Math.PI);
-          ctx.stroke();
-        }
-      }
-      if (r > 0.12) {
-        ctx.strokeStyle = '#d4d3a16b'; ctx.lineWidth = 0.026;
-        ctx.beginPath(); ctx.moveTo(-0.35, r * 0.8); ctx.lineTo(0.35, r * 0.8); ctx.stroke();
-      }
-      ctx.restore();
-    }
-    const head = points[0];
-    ctx.save(); ctx.translate(head.x, head.y);
-    ctx.rotate({ right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[player.direction]);
-    ctx.scale(cell, cell);
-    if (state === 'playing' && !reducedMotion && Math.sin(time / 160) > 0.6) {
-      ctx.strokeStyle = '#df817b'; ctx.lineWidth = 0.035;
-      ctx.beginPath(); ctx.moveTo(0.34, 0); ctx.lineTo(0.62, 0); ctx.lineTo(0.71, -0.07);
-      ctx.moveTo(0.62, 0); ctx.lineTo(0.71, 0.07); ctx.stroke();
-    }
-    const headSkin = ctx.createLinearGradient(0, -0.32, 0.12, 0.32);
-    headSkin.addColorStop(0, orange ? '#99532b' : '#405332'); headSkin.addColorStop(0.4, orange ? '#ffd29a' : '#b3bd7b'); headSkin.addColorStop(1, orange ? '#d29052' : '#6e7e46');
-    // Narrow neck, broad cheeks and a gently flattened snout.
-    ctx.fillStyle = headSkin; ctx.strokeStyle = '#293f2b'; ctx.lineWidth = 0.025;
-    ctx.beginPath(); ctx.moveTo(-0.43, -0.19);
-    ctx.bezierCurveTo(-0.25, -0.2, -0.2, -0.34, 0.03, -0.33);
-    ctx.bezierCurveTo(0.25, -0.32, 0.5, -0.22, 0.5, 0);
-    ctx.bezierCurveTo(0.5, 0.22, 0.25, 0.32, 0.03, 0.33);
-    ctx.bezierCurveTo(-0.2, 0.34, -0.25, 0.2, -0.43, 0.19);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = '#e0d9a1'; ctx.lineWidth = 0.045;
-    ctx.beginPath(); ctx.moveTo(-0.02, 0.27); ctx.quadraticCurveTo(0.41, 0.25, 0.47, 0.04); ctx.stroke();
-    for (const side of [-1, 1]) {
-      ellipse(0.06, side * 0.25, 0.075, 0.065, '#d6af48');
-      ellipse(0.08, side * 0.25, 0.018, 0.054, '#101f15');
-      ellipse(0.045, side * 0.25 - 0.018, 0.015, 0.013, '#fff6d2');
-      ellipse(0.35, side * 0.105, 0.022, 0.016, '#293d26');
-    }
-    ctx.strokeStyle = '#546638'; ctx.lineWidth = 0.015;
-    ctx.beginPath(); ctx.moveTo(-0.25, 0); ctx.lineTo(0.31, 0);
-    ctx.moveTo(-0.15, -0.16); ctx.lineTo(0.15, -0.13); ctx.lineTo(0.29, 0); ctx.lineTo(0.15, 0.13); ctx.lineTo(-0.15, 0.16);
-    ctx.moveTo(-0.12, -0.15); ctx.lineTo(-0.12, 0.15); ctx.stroke();
     ctx.restore();
   }
 
@@ -674,15 +688,17 @@
         ctx.stroke();
       }
     }
-    if (engine.food) drawPrey(left + (engine.food.x + 0.5) * cell, top + (engine.food.y + 0.5) * cell, cell);
+    for (const food of engine.foods) drawPrey(left + (food.x + 0.5) * cell, top + (food.y + 0.5) * cell, cell, food.type);
     if (engine.goldenFood) drawGoldenFood(left + (engine.goldenFood.x + 0.5) * cell, top + (engine.goldenFood.y + 0.5) * cell, cell, time);
     engine.players.forEach((player, index) => {
-      drawSnake(left, top, cell, time, player, index);
-      if (engine.playerCount === 2) {
-        ctx.fillStyle = index === 0 ? '#b5f4cc' : '#f8b487';
+      if (!player.alive) return;
+      const skin = SnakeSkins.forPlayer(index, playerSkin);
+      SnakeRenderer.draw(ctx, { left, top, cell, time, player, skin, animate: state === 'playing' && !reducedMotion });
+      if (engine.players.length > 1) {
+        ctx.fillStyle = skin.palette.label;
         ctx.font = `bold ${Math.max(9, cell * 0.4)}px system-ui`;
         ctx.textAlign = 'center';
-        ctx.fillText(`P${index + 1}`, left + (player.snake[0].x + 0.5) * cell, top + (player.snake[0].y - 0.15) * cell);
+        ctx.fillText(player.ai ? `AI ${index}` : engine.aiCount ? 'YOU' : `P${index + 1}`, left + (player.snake[0].x + 0.5) * cell, top + (player.snake[0].y - 0.15) * cell);
       }
     });
   }
@@ -734,7 +750,8 @@
   $('restartButton').addEventListener('click', startGame);
   document.querySelectorAll('[data-direction]').forEach((button) => {
     button.addEventListener('click', () => {
-      if (state === 'playing') engine.turn(button.dataset.direction, Number(button.dataset.player || 0));
+      const playerIndex = Number(button.dataset.player || 0);
+      if (state === 'playing' && playerIndex < engine.playerCount) engine.turn(button.dataset.direction, playerIndex);
     });
   });
   canvas.addEventListener('pointerdown', (event) => {

@@ -9,21 +9,28 @@
   const animals = ['rat', 'rabbit', 'frog'];
 
   class SnakeGame {
-    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1 } = {}) {
+    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1 } = {}) {
       if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 6 || rows < 6) {
         throw new RangeError('The board must be at least 6 × 6 cells.');
       }
       this.columns = columns;
       this.rows = rows;
       this.random = random;
-      this.reset({ mode, playerCount });
+      this.reset({ mode, playerCount, aiCount, foodCount });
     }
 
-    reset({ mode = this.mode, playerCount = this.playerCount } = {}) {
+    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount } = {}) {
       if (!['classic', 'obstacles', 'maze'].includes(mode)) throw new RangeError('Unknown game mode.');
       if (![1, 2].includes(playerCount)) throw new RangeError('Choose one or two players.');
+      if (!Number.isInteger(aiCount) || aiCount < 0 || aiCount > 3 || (aiCount > 0 && playerCount !== 1)) throw new RangeError('AI Arena supports one human and up to three bots.');
+      if (!Number.isInteger(foodCount) || foodCount < 1 || foodCount > 10) throw new RangeError('Choose between one and ten food items.');
       this.mode = mode;
       this.playerCount = playerCount;
+      this.aiCount = aiCount;
+      this.foodCount = foodCount;
+      this.food = null;
+      this.extraFoods = [];
+      this.endReason = null;
       this.winner = null;
       this.lastEater = null;
       this.lastCatches = [];
@@ -31,18 +38,23 @@
       this.goldenTicks = 0;
       const x = Math.floor(this.columns / 2);
       const y = playerCount === 2 ? Math.floor(this.rows / 3) : Math.floor(this.rows / 2);
-      this.players = Array.from({ length: playerCount }, (_, index) => {
-        const headX = index === 0 ? x : this.columns - 1 - x;
-        const headY = index === 0 ? y : this.rows - 1 - y;
+      const totalPlayers = playerCount + aiCount;
+      this.players = Array.from({ length: totalPlayers }, (_, index) => {
+        const facingRight = index % 2 === 0;
+        const headX = facingRight ? x : this.columns - 1 - x;
+        const headY = aiCount ? Math.floor((index + 1) * (this.rows - 1) / (totalPlayers + 1))
+          : index === 0 ? y : this.rows - 1 - y;
         return {
-          snake: Array.from({ length: 3 }, (__, i) => ({ x: headX + (index === 0 ? -i : i), y: headY })),
-          direction: index === 0 ? 'right' : 'left', turns: [], score: 0,
+          snake: Array.from({ length: 3 }, (__, i) => ({ x: headX + (facingRight ? -i : i), y: headY })),
+          direction: facingRight ? 'right' : 'left', turns: [], score: 0,
+          ai: index >= playerCount, alive: true,
           eaten: { rat: 0, rabbit: 0, frog: 0 }, goldenEaten: 0, collision: null,
         };
       });
       this.status = 'playing';
       this.obstacles = this.createObstacles();
       this.placeFood();
+      this.replenishFood();
       this.scheduleGoldenFood();
     }
 
@@ -67,13 +79,17 @@
     get goldenCaught() { return this.players.reduce((sum, player) => sum + player.goldenEaten, 0); }
     get totalCatches() { return this.preyCaught + this.goldenCaught; }
     get wraps() { return this.mode === 'classic'; }
+    get livingPlayers() { return this.players.filter((player) => player.alive); }
+    get foods() {
+      return [...(this.food ? [{ ...this.food, type: this.foodType }] : []), ...this.extraFoods];
+    }
 
     createObstacles() {
       if (this.wraps) return [];
       const cells = new Map();
       const add = (x, y, type) => {
         const border = x === 0 || y === 0 || x === this.columns - 1 || y === this.rows - 1;
-        // Give both starting bodies a clear runway and room to turn.
+        // Give every starting body a clear runway and room to turn.
         if (!border && this.players.some(({ snake }) => Math.abs(y - snake[0].y) <= 1 && Math.abs(x - snake[0].x) <= 3)) return;
         cells.set(`${x},${y}`, { x, y, type });
       };
@@ -104,7 +120,7 @@
       return [...cells.values()];
     }
 
-    // Both players share one pace; catches from either count toward the next level.
+    // All snakes share one pace; combined catches count toward the next level.
     get level() { return 1 + Math.floor(Math.min(...Object.values(this.totalEaten)) / 10); }
     get speedMultiplier() { return 1 + (this.level - 1) * 0.2; }
     get interval() { return Math.max(40, 160 / this.speedMultiplier); }
@@ -112,7 +128,7 @@
 
     turn(direction, playerIndex = 0) {
       const player = this.players[playerIndex];
-      if (this.status !== 'playing' || !player || !Object.hasOwn(directions, direction) || player.turns.length >= 2) return false;
+      if (this.status !== 'playing' || !player || !player.alive || !Object.hasOwn(directions, direction) || player.turns.length >= 2) return false;
       const previous = player.turns.at(-1) || player.direction;
       const a = directions[previous];
       const b = directions[direction];
@@ -122,7 +138,7 @@
     }
 
     emptyCells(reserved = []) {
-      const occupied = new Set([...this.players.flatMap((player) => player.snake), ...this.obstacles, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
+      const occupied = new Set([...this.livingPlayers.flatMap((player) => player.snake), ...this.obstacles, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
       const empty = [];
       for (let y = 0; y < this.rows; y++) {
         for (let x = 0; x < this.columns; x++) {
@@ -137,7 +153,18 @@
     }
 
     placeFood() {
-      this.food = this.pickCell(this.emptyCells([this.goldenFood]));
+      this.food = this.pickCell(this.emptyCells([this.goldenFood, ...this.extraFoods]));
+    }
+
+    replenishFood() {
+      if (!this.food) this.placeFood();
+      const empty = this.emptyCells([this.food, this.goldenFood, ...this.extraFoods]);
+      while (this.foods.length < this.foodCount && empty.length) {
+        const cell = this.pickCell(empty);
+        const index = empty.indexOf(cell);
+        empty.splice(index, 1);
+        this.extraFoods.push({ ...cell, type: animals[(this.preyCaught + this.foods.length) % animals.length] });
+      }
     }
 
     scheduleGoldenFood() {
@@ -152,81 +179,134 @@
           this.goldenFood = null;
           this.goldenTicks = 0;
           this.scheduleGoldenFood();
-          // The golden cell may have been the last cell available for normal prey.
-          if (!this.food) this.placeFood();
+          // Reuse the released bonus cell if a crowded board was below its food target.
+          this.replenishFood();
         }
       } else if (--this.goldenDelay <= 0) {
-        this.goldenFood = this.pickCell(this.emptyCells([this.food]));
+        this.goldenFood = this.pickCell(this.emptyCells(this.foods));
         this.goldenTicks = this.goldenFood ? 50 : 0;
         if (!this.goldenFood) this.scheduleGoldenFood();
       }
+    }
+
+    nextHead(player, direction = player.direction) {
+      const delta = directions[direction];
+      const head = { x: player.snake[0].x + delta.x, y: player.snake[0].y + delta.y };
+      if (this.wraps) {
+        head.x = (head.x + this.columns) % this.columns;
+        head.y = (head.y + this.rows) % this.rows;
+      }
+      return head;
+    }
+
+    predictMoves() {
+      const foods = this.foods;
+      return this.players.map((player) => {
+        if (!player.alive) return null;
+        player.direction = player.turns.shift() || player.direction;
+        const head = this.nextHead(player);
+        const prey = foods.find((food) => same(head, food));
+        const eatsGolden = this.goldenFood !== null && same(head, this.goldenFood);
+        return { head, prey, eatsGolden, body: prey || eatsGolden ? player.snake : player.snake.slice(0, -1) };
+      });
+    }
+
+    resolveCollisions(moves) {
+      // Resolve every pair from the same snapshot, including three-way clashes and head swaps.
+      this.players.forEach((player, index) => {
+        const move = moves[index];
+        if (!move) return;
+        const { head } = move;
+        const headClash = moves.some((other, j) => other && j !== index && (
+          same(head, other.head) || (same(head, this.players[j].snake[0]) && same(other.head, player.snake[0]))
+        ));
+        const obstacle = this.obstacles.find((cell) => same(cell, head));
+        if (headClash) player.collision = 'head-on';
+        else if (obstacle) player.collision = obstacle.type;
+        else if (head.x < 0 || head.y < 0 || head.x >= this.columns || head.y >= this.rows) player.collision = 'wall';
+        else if (move.body.some((cell) => same(cell, head))) player.collision = 'body';
+        else if (moves.some((other, j) => other && j !== index && other.body.some((cell) => same(cell, head)))) player.collision = 'opponent';
+      });
+    }
+
+    scoreWinner() {
+      const contenders = this.players.map((player, index) => ({ player, index })).filter(({ player }) => player.alive);
+      const highest = Math.max(...contenders.map(({ player }) => player.score));
+      const leaders = contenders.filter(({ player }) => player.score === highest);
+      return leaders.length === 1 ? leaders[0].index : null;
     }
 
     tick() {
       if (this.status !== 'playing') return 'idle';
       this.lastEater = null;
       this.lastCatches = [];
-      const foodType = this.foodType;
-      // Predict all moves before resolving collisions: neither player has first-move priority.
-      const moves = this.players.map((player) => {
-        player.direction = player.turns.shift() || player.direction;
-        const delta = directions[player.direction];
-        const head = { x: player.snake[0].x + delta.x, y: player.snake[0].y + delta.y };
-        if (this.wraps) {
-          head.x = (head.x + this.columns) % this.columns;
-          head.y = (head.y + this.rows) % this.rows;
-        }
-        const eatsPrey = this.food !== null && same(head, this.food);
-        const eatsGolden = this.goldenFood !== null && same(head, this.goldenFood);
-        return { head, eatsPrey, eatsGolden, body: eatsPrey || eatsGolden ? player.snake : player.snake.slice(0, -1) };
-      });
-      const headClash = moves.length === 2 && (same(moves[0].head, moves[1].head)
-        || (same(moves[0].head, this.players[1].snake[0]) && same(moves[1].head, this.players[0].snake[0])));
-      this.players.forEach((player, index) => {
-        const { head } = moves[index];
-        const obstacle = this.obstacles.find((cell) => same(cell, head));
-        if (headClash) player.collision = 'head-on';
-        else if (obstacle) player.collision = obstacle.type;
-        else if (head.x < 0 || head.y < 0 || head.x >= this.columns || head.y >= this.rows) player.collision = 'wall';
-        else if (moves[index].body.some((cell) => same(cell, head))) player.collision = 'body';
-        else if (moves.some((move, other) => other !== index && move.body.some((cell) => same(cell, head)))) player.collision = 'opponent';
-      });
-      if (this.players.some((player) => player.collision)) {
+      const moves = this.predictMoves();
+      this.resolveCollisions(moves);
+      const crashed = this.players.filter((player) => player.alive && player.collision);
+      // Preserve the original sudden-death solo/local-versus rules.
+      if (!this.aiCount && crashed.length) {
         this.status = 'over';
+        this.endReason = 'collision';
         const survivors = this.players.map((player, index) => player.collision ? -1 : index).filter((index) => index !== -1);
         this.winner = this.playerCount === 2 && survivors.length === 1 ? survivors[0] : null;
         return 'lost';
       }
       this.players.forEach((player, index) => {
-        player.snake.unshift(moves[index].head);
-        if (moves[index].eatsPrey || moves[index].eatsGolden) {
-          const golden = moves[index].eatsGolden;
-          const points = golden ? 5 : 1;
-          if (golden) player.goldenEaten++;
-          else player.eaten[foodType]++;
+        const move = moves[index];
+        if (!move) return;
+        if (player.collision) {
+          player.alive = false;
+          player.turns = [];
+          return;
+        }
+        player.snake.unshift(move.head);
+        if (move.prey || move.eatsGolden) {
+          const type = move.eatsGolden ? 'golden' : move.prey.type;
+          const points = move.eatsGolden ? 5 : 1;
+          if (move.eatsGolden) player.goldenEaten++;
+          else player.eaten[type]++;
           player.score += points;
           this.lastEater = index;
-          this.lastCatches.push({ playerIndex: index, type: golden ? 'golden' : foodType, points });
+          this.lastCatches.push({ playerIndex: index, type, points });
         } else player.snake.pop();
       });
-      const caughtGolden = moves.some((move) => move.eatsGolden);
+      const successfulMoves = moves.filter((move, index) => move && !this.players[index].collision);
+      const consumed = successfulMoves.filter((move) => move.prey).map((move) => move.prey);
+      const caughtGolden = successfulMoves.some((move) => move.eatsGolden);
       if (caughtGolden) {
         this.goldenFood = null;
         this.goldenTicks = 0;
         this.scheduleGoldenFood();
       }
-      if (moves.some((move) => move.eatsPrey)) this.placeFood();
+      if (consumed.some((food) => this.food && same(food, this.food))) this.food = null;
+      this.extraFoods = this.extraFoods.filter((food) => !consumed.some((eaten) => same(food, eaten)));
+      if (consumed.length || crashed.length) this.replenishFood();
       if (!caughtGolden) this.updateGoldenFood();
-      if (this.lastCatches.length) {
-        if (!this.food && !this.goldenFood) {
+
+      if (this.aiCount) {
+        if (!this.players[0].alive) {
+          this.status = 'over';
+          this.endReason = 'collision';
+          this.winner = this.livingPlayers.length === 1 ? this.players.indexOf(this.livingPlayers[0]) : null;
+          return 'lost';
+        }
+        if (this.livingPlayers.length === 1) {
           this.status = 'won';
-          this.winner = this.playerCount === 1 || this.players[0].score > this.players[1].score ? 0
-            : this.players[1].score > this.players[0].score ? 1 : null;
+          this.endReason = 'survival';
+          this.winner = 0;
+          return 'won';
+        }
+      }
+      if (this.lastCatches.length) {
+        if (!this.foods.length && !this.goldenFood) {
+          this.status = 'won';
+          this.endReason = 'filled';
+          this.winner = this.scoreWinner();
           return 'won';
         }
         return 'ate';
       }
-      return 'moved';
+      return crashed.length ? 'eliminated' : 'moved';
     }
   }
 

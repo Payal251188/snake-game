@@ -24,7 +24,68 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
   });
   try {
     for (const [width, height, touch] of sizes) {
-      await t.test(`${width}×${height}${touch ? ' touch' : ''}`, async () => {
+      for (const selection of ['2', 'ai']) {
+        await t.test(`${width}×${height}${touch ? ' touch' : ''} · ${selection === 'ai' ? 'AI Arena' : 'local versus'}`, async () => {
+          const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
+          try {
+            const page = await context.newPage();
+            const errors = [];
+            page.on('pageerror', (error) => errors.push(error.message));
+            await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+            await page.locator('#playerInput').fill('Alex');
+            await page.locator('#settingsSummary').click();
+            const skin = selection === 'ai' ? 'ember' : 'neon';
+            await page.locator('#skinSelect').selectOption(skin);
+            if (selection === 'ai') {
+              await page.locator('#playersSelect').selectOption('ai');
+              await page.locator('#foodSelect').selectOption('10');
+            }
+            await page.keyboard.press('Escape');
+            await page.locator('#playButton').click();
+            assert.equal(await page.locator('#board').getAttribute('data-skin'), skin);
+            if (selection === 'ai') {
+              assert.equal(await page.locator('#opponentScoreLabel').textContent(), 'AI LEFT');
+              assert.equal(await page.locator('#preyName').textContent(), '10 items');
+              assert.equal(await page.locator('#playerTwoControls').isVisible(), false);
+            }
+            assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
+            const layout = await page.evaluate(() => {
+              const fits = (selector) => {
+                const rect = document.querySelector(selector).getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0 && rect.bottom <= innerHeight && rect.right <= innerWidth;
+              };
+              return {
+                overflow: getComputedStyle(document.documentElement).overflow,
+                width: document.documentElement.scrollWidth,
+                height: document.documentElement.scrollHeight,
+                viewportWidth: innerWidth,
+                viewportHeight: innerHeight,
+                board: fits('#board'),
+                scoreboard: fits('.scoreboard'),
+                actions: fits('.game-actions'),
+                touch: matchMedia('(pointer: coarse)').matches ? fits('.touch-area') : true,
+              };
+            });
+            assert.equal(layout.overflow, 'hidden');
+            assert.ok(layout.width <= layout.viewportWidth, 'no horizontal overflow');
+            assert.ok(layout.height <= layout.viewportHeight, 'no vertical overflow');
+            for (const key of ['board', 'scoreboard', 'actions', 'touch']) assert.ok(layout[key], `${key} fits`);
+            await page.mouse.wheel(0, 500);
+            assert.equal(await page.evaluate(() => scrollY), 0);
+            await page.locator('#settingsSummary').click();
+            await page.waitForFunction(() => document.querySelector('.game-shell').dataset.state === 'paused');
+            await page.keyboard.press('Escape');
+            assert.equal(await page.locator('#gameSettings').getAttribute('open'), null);
+            assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).overflow), 'hidden');
+            assert.deepEqual(errors, []);
+          } finally {
+            await context.close();
+          }
+        });
+      }
+    }
+    for (const [width, height, touch] of [[1280, 800, false], [375, 667, true]]) {
+      await t.test(`skin rendering, paused changes and reload · ${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
         try {
           const page = await context.newPage();
@@ -32,36 +93,30 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           page.on('pageerror', (error) => errors.push(error.message));
           await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
           await page.locator('#playerInput').fill('Alex');
-          await page.locator('#playButton').click();
-          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
-          const layout = await page.evaluate(() => {
-            const fits = (selector) => {
-              const rect = document.querySelector(selector).getBoundingClientRect();
-              return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0 && rect.bottom <= innerHeight && rect.right <= innerWidth;
-            };
-            return {
-              overflow: getComputedStyle(document.documentElement).overflow,
-              width: document.documentElement.scrollWidth,
-              height: document.documentElement.scrollHeight,
-              viewportWidth: innerWidth,
-              viewportHeight: innerHeight,
-              board: fits('#board'),
-              scoreboard: fits('.scoreboard'),
-              actions: fits('.game-actions'),
-              touch: matchMedia('(pointer: coarse)').matches ? fits('.touch-area') : true,
-            };
-          });
-          assert.equal(layout.overflow, 'hidden');
-          assert.ok(layout.width <= layout.viewportWidth, 'no horizontal overflow');
-          assert.ok(layout.height <= layout.viewportHeight, 'no vertical overflow');
-          for (const key of ['board', 'scoreboard', 'actions', 'touch']) assert.ok(layout[key], `${key} fits`);
-          await page.mouse.wheel(0, 500);
-          assert.equal(await page.evaluate(() => scrollY), 0);
           await page.locator('#settingsSummary').click();
-          await page.waitForFunction(() => document.querySelector('.game-shell').dataset.state === 'paused');
+          const previews = new Set();
+          const boards = new Set();
+          for (const skin of ['classic', 'neon', 'ember', 'frost']) {
+            await page.locator('#skinSelect').selectOption(skin);
+            assert.equal(await page.locator('#skinPreview').getAttribute('data-skin'), skin);
+            previews.add(await page.locator('#skinPreview').evaluate((canvas) => canvas.toDataURL()));
+            boards.add(await page.locator('#board').evaluate((canvas) => canvas.toDataURL()));
+          }
+          assert.equal(previews.size, 4, 'each skin has distinct preview pixels');
+          assert.equal(boards.size, 4, 'each skin changes the actual board rendering');
           await page.keyboard.press('Escape');
-          assert.equal(await page.locator('#gameSettings').getAttribute('open'), null);
-          assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).overflow), 'hidden');
+          await page.locator('#playButton').click();
+          await page.locator('#pauseButton').click();
+          const score = await page.locator('#score').textContent();
+          await page.locator('#settingsSummary').click();
+          await page.locator('#skinSelect').selectOption('ember');
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
+          assert.equal(await page.locator('#board').getAttribute('data-skin'), 'ember');
+          assert.equal(await page.locator('#score').textContent(), score);
+          await page.reload();
+          assert.equal(await page.locator('#skinSelect').inputValue(), 'ember');
+          assert.equal(await page.locator('#board').getAttribute('data-skin'), 'ember');
+          assert.equal(await page.locator('#skinPreview').getAttribute('data-skin'), 'ember');
           assert.deepEqual(errors, []);
         } finally {
           await context.close();

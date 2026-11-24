@@ -4,6 +4,9 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const vm = require('node:vm');
 const { SnakeGame } = require('../snake-engine.js');
+const { SnakeAI } = require('../snake-ai.js');
+const { SnakeSkins } = require('../snake-skins.js');
+const { SnakeRenderer } = require('../snake-renderer.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
 // Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
@@ -14,7 +17,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       textContent: '', value: '', hidden: false, disabled: false, dataset: {}, attrs: {}, listeners: {},
-      tagName: id === 'modeSelect' || id === 'playersSelect' ? 'SELECT' : id === 'playerInput' || id === 'opponentInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
+      tagName: id.endsWith('Select') ? 'SELECT' : id === 'playerInput' || id === 'opponentInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
       setAttribute(name, value) { this.attrs[name] = value; },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       focus() { focused = id; },
@@ -26,6 +29,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   }
   const context = new Proxy({}, { get: (_, key) => key === 'createLinearGradient' ? () => ({ addColorStop: noop }) : noop, set: () => true });
   element('board').getContext = () => context;
+  Object.assign(element('skinPreview'), { getContext: () => context, width: 720, height: 160 });
   Object.assign(element('music'), {
     paused: true, volume: 0.75, plays: 0,
     play() { this.plays++; if (mediaError) return Promise.reject(mediaError); this.paused = false; return Promise.resolve(); },
@@ -77,6 +81,9 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   const sandbox = {
     setInterval: (callback) => { const id = ++timerId; timers.set(id, callback); return id; },
     clearInterval: (id) => timers.delete(id),
+    SnakeAI,
+    SnakeSkins,
+    SnakeRenderer,
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => ({ matches: true }), devicePixelRatio: 1,
@@ -277,6 +284,122 @@ test('versus survives blocked storage and corrupt preferences fall back to two p
   const g = load({ playerCount: null, blocked: true });
   g.click('playButton'); assert.equal(g.state(), 'playing');
   assert.equal(g.engine.playerCount, 2);
+});
+
+test('AI Arena exposes bot counts, hides second-human input and remembers food density', () => {
+  const g = load({ playerCount: null });
+  g.element('playersSelect').value = 'ai';
+  g.element('playersSelect').listeners.change();
+  assert.equal(g.engine.playerCount, 1);
+  assert.equal(g.engine.aiCount, 3);
+  assert.equal(g.engine.players.length, 4);
+  assert.equal(g.element('opponentEntry').hidden, true);
+  assert.equal(g.element('playerTwoControls').hidden, true);
+  assert.equal(g.element('opponentInput').required, false);
+  assert.equal(g.element('aiSettings').hidden, false);
+  assert.equal(g.element('opponentScoreLabel').textContent, 'AI LEFT');
+  g.element('aiCountSelect').value = '2';
+  g.element('aiCountSelect').listeners.change();
+  g.element('foodSelect').value = '10';
+  g.element('foodSelect').listeners.change();
+  assert.equal(g.engine.aiCount, 2);
+  assert.equal(g.engine.foods.length, 10);
+  const next = load({ storage: g.storage, playerCount: null });
+  assert.equal(next.engine.aiCount, 2);
+  assert.equal(next.engine.foodCount, 10);
+  next.element('opponentInput').value = '';
+  next.click('playButton');
+  assert.equal(next.state(), 'playing');
+  assert.equal(next.element('aiCountSelect').disabled, true);
+  assert.equal(next.element('foodSelect').disabled, true);
+  next.element('aiCountSelect').value = '3';
+  next.element('aiCountSelect').listeners.change();
+  next.element('foodSelect').value = '1';
+  next.element('foodSelect').listeners.change();
+  assert.equal(next.engine.aiCount, 2);
+  assert.equal(next.engine.foodCount, 10);
+  const before = JSON.stringify(next.engine.players.slice(1));
+  for (const time of [0, 200, 400, 600, 800]) next.frame(time);
+  assert.notEqual(JSON.stringify(next.engine.players.slice(1)), before);
+  next.click('pauseButton');
+  const paused = JSON.stringify(next.engine.players);
+  next.frame(2000);
+  assert.equal(JSON.stringify(next.engine.players), paused);
+  next.click('restartButton');
+  assert.ok(next.engine.players.every((player) => player.alive && player.score === 0));
+  assert.equal(next.engine.foods.length, 10);
+});
+
+test('AI catches update standings without replacing human records', () => {
+  const g = load({ playerCount: null });
+  g.element('playersSelect').value = 'ai';
+  g.element('playersSelect').listeners.change();
+  g.click('playButton');
+  Object.assign(g.engine.players[1], { snake: [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }], direction: 'right' });
+  g.engine.food = { x: 6, y: 5 };
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.ok(g.engine.players[1].score > 0);
+  assert.equal(g.element('best').textContent, '00');
+  assert.match(g.element('aiStandings').textContent, /AI 1: 1 points/);
+  assert.equal(g.element('opponentScore').textContent, '03');
+});
+
+test('AI eliminations update the HUD and the last surviving human gets a rematch', () => {
+  const g = load({ playerCount: null });
+  g.element('playersSelect').value = 'ai';
+  g.element('playersSelect').listeners.change();
+  g.click('playButton');
+  g.engine.obstacles = [];
+  for (const [index, x, y] of [[1, 5, 5], [2, 10, 10], [3, 18, 15]]) {
+    Object.assign(g.engine.players[index], { snake: [{ x, y }], direction: 'right' });
+    for (const [dx, dy] of [[1, 0], [0, -1], [0, 1]]) g.engine.obstacles.push({ x: x + dx, y: y + dy, type: 'wall' });
+  }
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.equal(g.state(), 'won');
+  assert.equal(g.element('opponentScore').textContent, '00');
+  assert.match(g.element('overlayTitle').textContent, /You win the AI Arena/);
+  assert.match(g.element('aiStandings').textContent, /eliminated/);
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('opponentScore').textContent, '03');
+  assert.ok(g.engine.players.every((player) => player.alive));
+});
+
+test('switching out of AI Arena restores local versus and original-food options', () => {
+  const g = load({ playerCount: null });
+  for (const selection of ['ai', '2']) {
+    g.element('playersSelect').value = selection;
+    g.element('playersSelect').listeners.change();
+  }
+  g.element('foodSelect').value = '1';
+  g.element('foodSelect').listeners.change();
+  assert.equal(g.engine.aiCount, 0);
+  assert.equal(g.engine.players.length, 2);
+  assert.equal(g.engine.foods.length, 1);
+  assert.equal(g.element('opponentEntry').hidden, false);
+  assert.equal(g.element('playerTwoControls').hidden, false);
+  assert.equal(g.element('aiSettings').hidden, true);
+  assert.equal(g.element('opponentScoreLabel').textContent, 'P2 SCORE');
+});
+
+test('invalid AI and food preferences fall back safely; blocked storage still supports AI', () => {
+  const g = load({ playerCount: null, storage: new Map([
+    ['snake-club-players-v1', 'ai'], ['snake-club-ai-count-v1', '999'], ['snake-club-food-count-v1', '-1'],
+  ]) });
+  assert.equal(g.engine.aiCount, 3);
+  assert.equal(g.engine.foodCount, 5);
+  for (const [id, value] of [['aiCountSelect', '999'], ['foodSelect', '-1']]) {
+    g.element(id).value = value;
+    g.element(id).listeners.change();
+  }
+  assert.equal(g.engine.aiCount, 3);
+  assert.equal(g.engine.foodCount, 5);
+  const blocked = load({ blocked: true, playerCount: null });
+  blocked.element('playersSelect').value = 'ai';
+  blocked.element('playersSelect').listeners.change();
+  blocked.click('playButton');
+  for (const time of [0, 200, 400, 600, 800]) blocked.frame(time);
+  assert.equal(blocked.state(), 'playing');
 });
 
 test('mode picker previews, remembers and locks the selected mode during a round', () => {
@@ -573,6 +696,80 @@ test('invalid saved avatars default safely and blocked storage still allows a ch
   g.click('playButton');
   assert.equal(g.state(), 'playing');
   assert.equal(g.element('playerAvatar').dataset.avatar, 'olive');
+});
+
+test('skin selection previews and saves immediately without changing the simulation', () => {
+  const g = load({ playerCount: null });
+  assert.equal(g.element('skinSelect').value, 'classic');
+  const before = JSON.stringify(g.engine);
+  for (const id of Object.keys(SnakeSkins.catalog)) {
+    g.element('skinSelect').value = id;
+    g.element('skinSelect').listeners.change();
+    assert.equal(g.element('board').dataset.skin, id);
+    assert.equal(g.element('skinPreview').dataset.skin, id);
+    assert.match(g.element('skinPreview').attrs['aria-label'], new RegExp(SnakeSkins.get(id).name));
+    assert.equal(g.storage.get('snake-club-skin-v1'), id);
+    assert.equal(JSON.stringify(g.engine), before, 'cosmetics never reset or modify a round');
+    assert.equal(load({ storage: g.storage, playerCount: null }).element('skinSelect').value, id);
+  }
+});
+
+test('skins survive play, paused changes, restart and avatar selection independently', () => {
+  const g = load();
+  g.element('skinSelect').value = 'ember';
+  g.element('skinSelect').listeners.change();
+  g.element('avatar-peach').checked = true;
+  g.element('avatar-peach').listeners.change();
+  g.click('playButton');
+  assert.equal(g.element('board').dataset.skin, 'ember');
+  assert.equal(g.element('playerAvatar').dataset.avatar, 'peach');
+  g.click('pauseButton');
+  const paused = JSON.stringify(g.engine);
+  g.element('skinSelect').value = 'frost';
+  g.element('skinSelect').listeners.change();
+  assert.equal(g.state(), 'paused');
+  assert.equal(JSON.stringify(g.engine), paused);
+  assert.equal(g.element('board').dataset.skin, 'frost');
+  g.click('restartButton');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('board').dataset.skin, 'frost');
+  assert.equal(g.element('playerAvatar').dataset.avatar, 'peach');
+  g.key(' ', { target: g.element('skinSelect') });
+  assert.equal(g.state(), 'playing', 'native select keys are not game commands');
+});
+
+test('invalid skins and storage failures never prevent choosing a session skin', () => {
+  for (const value of ['unknown', '__proto__', 'constructor', '']) {
+    const g = load({ storage: new Map([['snake-club-skin-v1', value]]) });
+    assert.equal(g.element('skinSelect').value, 'classic');
+  }
+  for (const blocked of [false, true]) {
+    const g = load({ blocked });
+    if (!blocked) g.storage.set = () => { throw Error('Quota exceeded'); };
+    g.element('skinSelect').value = 'neon';
+    assert.doesNotThrow(() => g.element('skinSelect').listeners.change());
+    assert.equal(g.element('board').dataset.skin, 'neon');
+    assert.match(g.element('skinDescription').textContent, /session/);
+    g.element('skinSelect').value = '__proto__';
+    g.element('skinSelect').listeners.change();
+    assert.equal(g.element('skinSelect').value, 'neon');
+    g.click('playButton');
+    assert.equal(g.state(), 'playing');
+  }
+});
+
+test('all skins preserve identical input, movement, food, score and collision outcomes', () => {
+  const outcomes = [];
+  for (const id of Object.keys(SnakeSkins.catalog)) {
+    const g = load();
+    g.element('skinSelect').value = id;
+    g.element('skinSelect').listeners.change();
+    g.click('playButton');
+    g.key('ArrowUp');
+    for (const time of [0, 200, 400, 600, 800, 1000]) g.frame(time);
+    outcomes.push(JSON.stringify(g.engine));
+  }
+  assert.equal(new Set(outcomes).size, 1);
 });
 
 test('avatar markup uses three labeled native radios with one default choice', () => {
