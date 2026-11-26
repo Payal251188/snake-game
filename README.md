@@ -61,7 +61,7 @@ Visit **http://localhost:45006/**. Hard-refresh an older tab if necessary.
 - Moves resolve simultaneously, without a first-player advantage. A non-growing tail vacates its cell; a growing or shield-stopped tail stays solid.
 - Crashed AI disappears. In AI Arena, surviving all bots wins; your own crash ends the round. If the board fills first, surviving scores decide the winner, with ties drawing. Solo wins by filling all open cells. Hazards do not count as open cells.
 - Scores remain individual. The best human score and its player's name are saved locally; ties keep the first champion. Bots never replace human best records. If storage is blocked, records and preferences work for the current session.
-- Three snake friends cheer after catches. Local music starts with play; catches play a chomp and game over has its own sound. The header mute button and More options volume slider control audio; test buttons and failure messages help diagnose playback. Music pauses with the game.
+- Three snake friends at the top of the arena cheer after catches. Local music starts with play; catches play a chomp and game over has its own sound. The header mute button and More options volume slider control audio; test buttons and failure messages help diagnose playback. Music pauses with the game.
 
 ### Files
 

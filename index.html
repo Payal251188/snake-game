@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — Play, grow, enjoy.</title>
-  <link rel="stylesheet" href="style.css?v=simple1">
+  <link rel="stylesheet" href="style.css?v=cheers-top1">
   <script src="snake-engine.js?v=simple1" defer></script>
   <script src="snake-ai.js?v=simple1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
@@ -106,7 +106,8 @@
       <div class="scoreboard">
         <div class="score-group"><span class="score-label"><i class="dot"></i><span id="scoreLabel">P1 SCORE</span></span><span class="score-value" id="score">00</span></div>
         <div class="score-group opponent-score" id="opponentScoreGroup"><span class="score-label"><i class="dot"></i><span id="opponentScoreLabel">P2 SCORE</span></span><span class="score-value" id="opponentScore">00</span></div>
-        <div class="match-label"><span id="matchStatus">READY TO GROW</span></div>
+        <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you"><div class="friend-crowd" aria-hidden="true"><span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span><span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span><span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span></div></div>
+        <div class="sr-only"><span id="matchStatus">READY TO GROW</span></div>
         <div class="score-group best-group"><span class="score-label">BEST</span><span class="score-value" id="best">00</span></div>
       </div>
       <div class="player-strip"><span class="player-identity"><img class="player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong></span><span id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong></span><span>LEVEL <strong id="arenaLevel">1</strong></span></div>
@@ -132,7 +133,7 @@
       </div>
       <div class="game-footer">
         <span class="speed-label">PACE <strong id="pace">1.0×</strong></span>
-        <div class="snake-friends" id="snakeFriends" data-cheering="false" aria-label="Snake friends cheering for you"><div class="friend-crowd" aria-hidden="true"><span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span><span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span><span class="snake-fan"><img src="assets/snake-friend.svg" alt=""><span class="fan-hands">👏</span></span></div><div class="friend-copy"><span id="friendMessage">Your snake friends are rooting for you!</span><span class="footer-message" id="footerMessage">Find your rhythm.</span></div></div>
+        <div class="friend-copy"><span id="friendMessage">Your snake friends are rooting for you!</span><span class="footer-message" id="footerMessage">Find your rhythm.</span></div>
         <div class="game-actions"><button id="pauseButton" type="button" disabled>Ⅱ PAUSE</button><span class="divider"></span><button id="restartButton" type="button" aria-label="Start a new game">↻ RESTART</button></div>
       </div>
     </section>

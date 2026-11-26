@@ -56,6 +56,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             assert.equal(await page.locator('#snakeFriends').isVisible(), true);
             assert.equal(await page.locator('#snakeFriends').evaluate((element) => Boolean(element.closest('#gameSettings'))), false);
             assert.equal(await page.locator('#snakeFriends .snake-fan img').count(), 3);
+            assert.equal(await page.locator('#snakeFriends').evaluate((element) => Boolean(element.closest('.scoreboard'))), true);
             const layout = await page.evaluate(() => {
               const fits = (selector) => {
                 const rect = document.querySelector(selector).getBoundingClientRect();
@@ -69,6 +70,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
                 viewportHeight: innerHeight,
                 board: fits('#board'),
                 scoreboard: fits('.scoreboard'),
+                crowdAtTop: document.querySelector('#snakeFriends').getBoundingClientRect().bottom <= document.querySelector('#board').getBoundingClientRect().top,
                 actions: fits('.game-actions'),
                 crowd: fits('.friend-crowd') && [...document.querySelectorAll('.snake-fan img')].every((image) => {
                   const rect = image.getBoundingClientRect();
@@ -80,7 +82,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             assert.equal(layout.overflow, 'hidden');
             assert.ok(layout.width <= layout.viewportWidth, 'no horizontal overflow');
             assert.ok(layout.height <= layout.viewportHeight, 'no vertical overflow');
-            for (const key of ['board', 'scoreboard', 'actions', 'crowd', 'touch']) assert.ok(layout[key], `${key} fits`);
+            for (const key of ['board', 'scoreboard', 'actions', 'crowd', 'crowdAtTop', 'touch']) assert.ok(layout[key], `${key} fits`);
             await page.mouse.wheel(0, 500);
             assert.equal(await page.evaluate(() => scrollY), 0);
             await page.locator('#settingsSummary').click();

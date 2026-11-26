@@ -58,8 +58,6 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
 .best-group .score-value { color:var(--orange); font-size:28px; }
 .opponent-score .score-value,.opponent-score .score-label { color:var(--orange); }
 .opponent-score .dot { background:var(--orange); }
-.match-label { position:absolute; left:50%; transform:translateX(-50%); color:#97b0b2; font-size:8px; letter-spacing:1px; }
-.game-shell:is([data-players='2'],[data-players='ai']) .match-label { display:none; }
 .score-group[hidden],.player-strip > span[hidden],.touch-controls[hidden],.opponent-entry[hidden] { display:none; }
 .player-strip { display:flex; flex-wrap:wrap; flex-shrink:0; align-items:center; justify-content:space-between; gap:5px 12px; padding:5px 20px; color:#a2b7b5; font-size:9px; letter-spacing:.6px; }
 .player-strip > span { min-width:0; overflow-wrap:anywhere; }
@@ -125,7 +123,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
 #friendMessage,.footer-message { display:block; max-width:240px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:11px; color:#c0d8bd; }
 .footer-message { color:#97b3b2; font-size:10px; }
 .snake-friends[data-cheering='true'] { background:#284332; }
-.snake-friends[data-cheering='true'] #friendMessage { color:#f4df99; }
+.game-shell:has(.snake-friends[data-cheering='true']) #friendMessage { color:#f4df99; }
 .snake-friends[data-cheering='true'] .snake-fan { animation:friend-bounce 360ms ease-in-out infinite; }
 .snake-friends[data-cheering='true'] .fan-hands { opacity:1; animation:friend-clap 180ms ease-in-out infinite alternate; }
 .snake-friends[data-cheering='true'] .snake-fan:nth-child(2) { animation-delay:-120ms; }
@@ -152,7 +150,6 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
   .game-shell:is([data-players='2'],[data-players='ai']) .score-group { flex-direction:column; align-items:flex-start; gap:3px; }
   .game-shell:is([data-players='2'],[data-players='ai']) .best-group { align-items:flex-end; }
   .best-group .score-value { font-size:25px; }
-  .match-label { display:none; }
   .player-strip { padding:4px 10px; font-size:8px; }
   .player-strip strong { font-size:10px; }
   .player-avatar { width:22px; height:22px; }
