@@ -13,16 +13,27 @@ const { SnakeBoard } = require('../snake-board.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
 // Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
-function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer } = {}) {
+function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer, autoCountdown = true } = {}) {
   const elements = new Map();
   const noop = () => {};
   let focused;
+  let frameOffset = 0;
+  let lastFrameTime = 0;
+  function finishCountdown() {
+    if (!autoCountdown || element('.game-shell').dataset.state !== 'countdown') return;
+    let time = lastFrameTime;
+    for (let i = 0; i < 30 && element('.game-shell').dataset.state === 'countdown'; i++) { time += 200; frame(time); }
+    frameOffset = lastFrameTime = time;
+  }
+  function handle(callback) {
+    return (...args) => { const result = callback(...args); finishCountdown(); return result; };
+  }
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       textContent: '', value: '', hidden: false, disabled: false, dataset: {}, attrs: {}, listeners: {},
       tagName: id.endsWith('Select') ? 'SELECT' : id === 'playerInput' || id === 'opponentInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
       setAttribute(name, value) { this.attrs[name] = value; },
-      addEventListener(name, callback) { this.listeners[name] = callback; },
+      addEventListener(name, callback) { this.listeners[name] = handle(callback); },
       focus() { focused = id; },
       closest(selector) { return selector === 'button' && this.tagName === 'BUTTON' ? this : null; },
       getBoundingClientRect: () => ({ width: 720, height: 600 }),
@@ -95,7 +106,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => motionQuery, devicePixelRatio: 1,
-      addEventListener: (name, callback) => { events[name] = callback; } },
+      addEventListener: (name, callback) => { events[name] = handle(callback); } },
     localStorage: {
       getItem: (key) => { if (blocked) throw Error('Blocked'); return storage.get(key) ?? null; },
       setItem: (key, value) => { if (blocked) throw Error('Blocked'); storage.set(key, value); },
@@ -108,7 +119,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   return {
     element, engine, events, document, documentEvents, storage, timers, audioStats,
     focus: () => focused,
-    frame: (time) => frame(time),
+    frame: (time) => { lastFrameTime = frameOffset + time; frame(lastFrameTime); },
     click: (id) => element(id).listeners.click(),
     key: (key, extra = {}) => events.keydown({ key, target: element('board'), preventDefault: noop, ...extra }),
     state: () => element('.game-shell').dataset.state,
@@ -503,7 +514,7 @@ test('obstacle hits show the cause and replay restores a safe layout', () => {
     g.engine.snake = [{ x: target.x - 1, y: target.y }];
     for (const time of [0, 200, 400, 600, 800]) g.frame(time);
     assert.equal(g.state(), 'over');
-    assert.ok(g.element('overlayText').textContent.includes(`hit a ${type}`));
+    assert.ok(g.element('overlayText').textContent.includes(`hit a ${type === 'rock' ? 'stone block' : type}`));
     assert.equal(g.element('music').paused, true);
     g.click('playButton');
     assert.equal(g.state(), 'playing');
@@ -644,6 +655,110 @@ test('AI mushroom bonuses never replace the human best record', () => {
   assert.equal(g.engine.players[1].score, 50);
   assert.equal(g.element('best').textContent, '00');
   assert.match(g.element('aiStandings').textContent, /AI 1: 50 points.*reversed/);
+});
+
+test('home offers the selected map/play type, opens setup, and safely cancels a countdown', () => {
+  const g = load({ autoCountdown: false });
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.element('homeIntro').hidden, false);
+  assert.equal(g.element('homeSummary').textContent, 'Obstacles · Solo');
+  g.click('homeSettings');
+  assert.equal(g.element('gameSettings').open, true);
+  assert.equal(g.focus(), 'playersSelect');
+  selectRecordCategory(g, 'classic', 'ai');
+  assert.equal(g.element('homeSummary').textContent, 'Classic · AI Arena');
+  g.click('playButton');
+  assert.equal(g.state(), 'countdown');
+  assert.equal(g.element('homeIntro').hidden, true);
+  g.click('homeButton');
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.element('homeIntro').hidden, false);
+  assert.equal(g.element('countdown').hidden, true);
+  assert.equal(g.element('gameSettings').open, false);
+  assert.equal(g.element('playLabel').textContent, 'LET’S PLAY');
+  g.frame(10000);
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.engine.elapsedMs, 0);
+});
+
+test('1 → 2 → 3 → GO freezes all snakes and timers until the round starts', () => {
+  const g = load({ autoCountdown: false });
+  selectRecordCategory(g, 'classic', 'ai');
+  g.click('playButton');
+  const snakes = JSON.stringify(g.engine.players.map((player) => player.snake));
+  assert.equal(g.state(), 'countdown');
+  assert.equal(g.element('countdownNumber').textContent, '1');
+  assert.equal(g.element('countdown').hidden, false);
+  assert.equal(g.element('overlay').hidden, true);
+  g.frame(0);
+  const sequence = [];
+  for (let time = 200; time <= 3000; time += 200) {
+    g.frame(time);
+    if (time % 1000 === 0) sequence.push(g.element('countdownNumber').textContent);
+    assert.equal(g.engine.elapsedMs, 0);
+    assert.equal(JSON.stringify(g.engine.players.map((player) => player.snake)), snakes);
+  }
+  assert.deepEqual(sequence, ['2', '3', 'GO!']);
+  assert.equal(g.state(), 'countdown');
+  g.frame(3200); g.frame(3400); g.frame(3450);
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('countdown').hidden, true);
+  assert.equal(g.engine.elapsedMs, 0);
+  g.frame(3650); g.frame(3850); g.frame(4050);
+  assert.ok(g.engine.elapsedMs > 0);
+});
+
+test('countdown locks game settings, ignores repeat starts and allows a first direction', () => {
+  const g = load({ autoCountdown: false });
+  g.click('playButton');
+  g.frame(0);
+  for (const time of [200, 400, 600, 800, 1000]) g.frame(time);
+  g.key('r');
+  g.click('restartButton');
+  assert.equal(g.element('countdownNumber').textContent, '2', 'duplicate starts do not reset the countdown');
+  for (const id of ['playersSelect', 'modeSelect', 'foodSelect', 'aiCountSelect']) assert.equal(g.element(id).disabled, true);
+  g.element('modeSelect').value = 'maze'; g.element('modeSelect').listeners.change();
+  assert.equal(g.engine.mode, 'obstacles');
+  g.key('ArrowUp');
+  assert.deepEqual(g.engine.turns, ['up']);
+  assert.equal(g.engine.elapsedMs, 0);
+});
+
+test('blur and Escape pause the countdown without skipping numbers on resume', () => {
+  const g = load({ autoCountdown: false });
+  g.click('playButton');
+  g.frame(0);
+  for (const time of [200, 400, 600, 800, 1000, 1200]) g.frame(time);
+  assert.equal(g.element('countdownNumber').textContent, '2');
+  g.events.blur();
+  assert.equal(g.state(), 'paused');
+  const before = JSON.stringify(g.engine);
+  g.frame(5000);
+  assert.equal(JSON.stringify(g.engine), before);
+  g.click('playButton');
+  assert.equal(g.state(), 'countdown');
+  g.frame(5100); g.frame(5300);
+  assert.equal(g.element('countdownNumber').textContent, '2');
+  g.key('Escape');
+  assert.equal(g.state(), 'paused');
+  g.element('gameStats').open = true;
+  g.click('homeButton');
+  assert.equal(g.element('gameStats').open, false);
+  assert.equal(g.state(), 'ready');
+});
+
+test('rematches always begin a fresh countdown rather than moving immediately', () => {
+  const g = load({ autoCountdown: false });
+  g.click('playButton');
+  for (let time = 0; time <= 3600; time += 200) g.frame(time);
+  g.engine.obstacles = [{ ...g.engine.nextHead(g.engine.players[0]), type: 'wall' }];
+  g.frame(3800); g.frame(4000); g.frame(4200);
+  assert.equal(g.state(), 'over');
+  g.click('playButton');
+  assert.equal(g.state(), 'countdown');
+  assert.equal(g.element('countdownNumber').textContent, '1');
+  assert.equal(g.engine.score, 0);
+  assert.equal(g.engine.elapsedMs, 0);
 });
 
 test('UI starts, moves, pauses without advancing, resumes and restarts', () => {

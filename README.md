@@ -20,6 +20,8 @@ Visit **http://localhost:45006/**. Hard-refresh an older tab if necessary.
 
 ### Simple, smooth 2D play
 
+- A dedicated **home page** welcomes you with the snake friends, your selected map/play type, a setup shortcut, player names, and a prominent Play button. Avatars stay optional. Use **HOME** beside the game controls to leave a round and return; records and preferences are preserved.
+- Every new round, restart, and rematch shows **1 → 2 → 3 → GO!** before snakes move. The countdown freezes all simulation timers and bots, allows you to choose your first direction, and pauses safely on Escape, blur, or opening Settings/Stats. Resuming continues the countdown rather than skipping it; returning Home cancels it.
 - A fixed, fully visible **24×20 board** replaces the previous arena presentation. There are no camera modes, tilted boards, minimaps, planets, or fullscreen controls.
 - **Settings** contains play type and map. **Appearance** holds snake skins and the **Nightfall**, **Meadow**, and **Sunset** backdrops. **More options** holds food density, AI opponent count, and audio tools. Cosmetic changes apply immediately and are saved independently.
 - **Stats** is a separate panel: three progress bars show human animal catches toward the next level. Detailed round counts, records, and AI standings are collapsed below.
@@ -56,7 +58,7 @@ Visit **http://localhost:45006/**. Hard-refresh an older tab if necessary.
 
 ### Maps, collisions, and records
 
-- **Obstacles** is the default: solid outer walls, striped barriers, and rocks. **Classic** wraps at the edges with no hazards. **Maze** has solid outer walls and connected winding passages. Map preferences are saved locally.
+- **Obstacles** is the default: solid outer walls, striped barriers, and square stone blocks marked with a high-contrast amber × so they cannot be mistaken for food. **Classic** wraps at the edges with no hazards. **Maze** has solid outer walls and connected winding passages. Map preferences are saved locally.
 - Wall, obstacle, self, and opponent-body collisions end an unshielded snake's run. Local versus awards the round to the survivor, regardless of score. Simultaneous crashes, head-on collisions, and head swaps draw unless a shield safely stops a move.
 - Moves resolve simultaneously, without a first-player advantage. A non-growing tail vacates its cell; a growing or shield-stopped tail stays solid.
 - Crashed AI disappears. In AI Arena, surviving all bots wins; your own crash ends the round. If the board fills first, surviving scores decide the winner, with ties drawing. Solo wins by filling all open cells. Hazards do not count as open cells.
@@ -72,7 +74,7 @@ Visit **http://localhost:45006/**. Hard-refresh an older tab if necessary.
 - `snake-skins.js`, `snake-renderer.js`: immutable skin catalog and shared snake/preview rendering.
 - `snake-items-renderer.js`: shaded mushroom, herb, shield, and clock sprites.
 - `game.js`: browser controller, animal drawing, keyboard/touch input, audio, storage, and UI states.
-- `index.html`, `style.css`: compact responsive layout, Settings, Stats, start screen, and cheering snakes.
+- `index.html`, `style.css`: responsive home page, countdown, compact game layout, Settings, Stats, and cheering snakes.
 
 ### Tests
 
@@ -88,4 +90,4 @@ Optional real-browser checks use Playwright and Google Chrome. Set `PLAYWRIGHT_M
 PLAYWRIGHT_MODULE=/path/to/playwright node --test tests/*.test.cjs
 ```
 
-Coverage includes human-only levels, slower pacing, non-mutating smooth interpolation, wrap/growth/reset handling, cached rendering and resolution limits, food motion and fair safe placement, power-up spawning/expiry/pause/reset, simultaneous shield collisions and stopped tails, slow-motion scaling, mushroom/herb recovery, skins and saved backdrops, audio/storage fallbacks, per-map/play-type record isolation and persistence, legacy-record preservation, golden bonuses, AI simulations, and solo/local-versus rules. Real-browser tests cover eight desktop/mobile sizes, scrollbar-free play and pause, visible cheering snakes and controls, separate Settings/Stats, cosmetic preferences, and actual mushroom pickup/recovery flows.
+Coverage includes human-only levels, slower pacing, non-mutating smooth interpolation, wrap/growth/reset handling, cached rendering and resolution limits, food motion and fair safe placement, power-up spawning/expiry/pause/reset, simultaneous shield collisions and stopped tails, slow-motion scaling, mushroom/herb recovery, skins and saved backdrops, audio/storage fallbacks, per-map/play-type record isolation and persistence, legacy-record preservation, home navigation, countdown/rematch/pause lifecycle, unmistakable stone hazards, golden bonuses, AI simulations, and solo/local-versus rules. Real-browser tests cover eight desktop/mobile sizes, scrollbar-free play and pause, visible cheering snakes and controls, separate Settings/Stats, cosmetic preferences, and actual mushroom pickup/recovery flows.

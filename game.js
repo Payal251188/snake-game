@@ -17,7 +17,7 @@
   let preferredAICount = 3;
   const modes = {
     classic: { name: 'Classic', hint: 'Edges wrap. Avoid your own body.' },
-    obstacles: { name: 'Obstacles', hint: 'Solid edges. Dodge stone walls, striped barriers, and rocks.' },
+    obstacles: { name: 'Obstacles', hint: 'Solid edges. Avoid walls, striped barriers, and stone blocks marked ×.' },
     maze: { name: 'Maze', hint: 'Solid edges. Wind through the gaps between the maze walls.' },
   };
   const avatars = { mint: 'Mint', peach: 'Peach', olive: 'Olive' };
@@ -51,6 +51,9 @@
   let canSave = true;
   let lastTime = null;
   let elapsed = 0;
+  let countdownElapsed = 0;
+  let countdownLastTime = null;
+  let pausedCountdown = false;
   let width = 720;
   let height = 600;
   let soundOn = true;
@@ -237,7 +240,9 @@
     $('playerInputLabel').textContent = dual ? `Player 1 · ${SnakeSkins.get(playerSkin).name} · WASD` : 'Who’s playing?';
     $('controlsHint').textContent = steeringHint();
     $('modeHint').textContent = modes[engine.mode].hint;
+    $('homeSummary').textContent = recordLabel();
     if (state === 'ready') {
+      $('playLabel').textContent = 'LET’S PLAY';
       $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
       $('overlayTitle').textContent = engine.aiCount ? `You vs ${engine.aiCount} AI snakes.` : dual ? 'Two snakes. One arena.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
       $('overlayText').textContent = `${modes[engine.mode].hint}\n${engine.aiCount ? steeringHint() : dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic in Settings, then play.'}`;
@@ -245,7 +250,7 @@
     canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
   $('modeSelect').addEventListener('change', () => {
-    if (state === 'playing' || state === 'paused') return;
+    if (['playing', 'countdown', 'paused'].includes(state)) return;
     const mode = $('modeSelect').value;
     if (!Object.hasOwn(modes, mode)) return;
     engine.reset({ mode });
@@ -259,7 +264,7 @@
     announce(`${modes[mode].name} mode selected. ${modes[mode].hint}`);
   });
   $('playersSelect').addEventListener('change', () => {
-    if (state === 'playing' || state === 'paused') return;
+    if (['playing', 'countdown', 'paused'].includes(state)) return;
     const selection = $('playersSelect').value;
     if (!['1', '2', 'ai'].includes(selection)) return;
     const playerCount = selection === 'ai' ? 1 : Number(selection);
@@ -274,7 +279,7 @@
     announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player versus' : 'Solo'} selected. ${steeringHint()}`);
   });
   $('aiCountSelect').addEventListener('change', () => {
-    if (state === 'playing' || state === 'paused') return;
+    if (['playing', 'countdown', 'paused'].includes(state)) return;
     const count = Number($('aiCountSelect').value);
     if (![2, 3].includes(count)) return;
     preferredAICount = count;
@@ -291,7 +296,7 @@
     announce(`${count} AI opponents selected.`);
   });
   $('foodSelect').addEventListener('change', () => {
-    if (state === 'playing' || state === 'paused') return;
+    if (['playing', 'countdown', 'paused'].includes(state)) return;
     const foodCount = Number($('foodSelect').value);
     if (![1, 5, 10].includes(foodCount)) return;
     engine.reset({ foodCount });
@@ -382,28 +387,29 @@
   function setState(next) {
     state = next;
     sceneDirty = true;
-    if (state === 'playing') {
+    const active = ['playing', 'countdown', 'paused'].includes(state);
+    if (state === 'playing' || state === 'countdown') {
       $('gameSettings').open = false;
       $('gameStats').open = false;
     }
     if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
     document.querySelector('.game-shell').dataset.state = state;
     $('matchStatus').textContent = {
-      ready: 'READY TO GROW', playing: 'ON THE MOVE', paused: 'TAKING A BREATHER',
+      ready: 'READY TO GROW', countdown: 'GET READY', playing: 'ON THE MOVE', paused: 'TAKING A BREATHER',
       over: 'GOOD GAME', won: 'BOARD COMPLETE',
     }[state];
-    $('overlay').hidden = state === 'playing';
-    $('playerEntry').hidden = state === 'playing' || state === 'paused';
+    $('overlay').hidden = state === 'playing' || state === 'countdown';
+    $('homeIntro').hidden = state !== 'ready';
+    $('countdown').hidden = state !== 'countdown';
+    $('playerEntry').hidden = active;
     previewSound = false;
     syncMusic();
-    $('modeSelect').disabled = state === 'playing' || state === 'paused';
-    $('playersSelect').disabled = state === 'playing' || state === 'paused';
-    $('aiCountSelect').disabled = state === 'playing' || state === 'paused';
-    $('foodSelect').disabled = state === 'playing' || state === 'paused';
-    $('pauseButton').disabled = !['playing', 'paused'].includes(state);
+    for (const id of ['modeSelect', 'playersSelect', 'aiCountSelect', 'foodSelect']) $(id).disabled = active;
+    $('pauseButton').disabled = !active;
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
     lastTime = null;
+    countdownLastTime = null;
     gesture = null;
   }
 
@@ -458,7 +464,7 @@
   function syncMusic() {
     const request = ++playbackRequest;
     updateSoundControls();
-    if (!soundOn || (state !== 'playing' && !previewSound)) {
+    if (!soundOn || (!['playing', 'countdown'].includes(state) && !previewSound)) {
       music.pause();
       $('soundLabel').textContent = soundOn ? 'MUSIC READY' : 'MUSIC OFF';
       $('audioStatus').textContent = soundOn ? 'Music starts with Play, or try Test sound.' : 'Music and effects are muted.';
@@ -528,6 +534,7 @@
   }
 
   function startGame() {
+    if (state === 'countdown') return;
     const name = cleanName($('playerInput').value);
     if (!name) {
       if (state === 'playing') pause();
@@ -572,23 +579,44 @@
     startingBest = best;
     elapsed = -250; // A brief runway to choose your first direction.
     updateScores();
-    setState('playing');
+    countdownElapsed = 0;
+    pausedCountdown = false;
+    $('countdownNumber').textContent = '1';
+    setState('countdown');
     $('footerMessage').textContent = modes[engine.mode].hint;
     canvas.focus({ preventScroll: true });
-    announce(`${playerName}, game started with the ${avatars[playerAvatar]} avatar. ${modes[engine.mode].name} mode. ${modes[engine.mode].hint} ${steeringHint()} ${engine.playerCount === 2 ? `${opponentName} is Player 2. ` : ''}Catch the ${engine.foodType}.`);
+    announce(`${playerName}, get ready. 1, 2, 3, GO! Playing with the ${avatars[playerAvatar]} avatar. ${modes[engine.mode].name} mode. ${modes[engine.mode].hint} ${steeringHint()} ${engine.playerCount === 2 ? `${opponentName} is Player 2. ` : ''}Catch the ${engine.foodType}.`);
   }
 
   function pause() {
-    if (state === 'playing') {
+    if (state === 'playing' || state === 'countdown') {
+      pausedCountdown = state === 'countdown';
       setState('paused');
-      showOverlay('NO RUSH. WE’LL WAIT.', 'A little breather.', 'Your next bite is right where you left it.', 'BACK TO IT', 'or press space to resume');
+      showOverlay('NO RUSH. WE’LL WAIT.', 'A little breather.', pausedCountdown ? 'Your countdown will continue when you return.' : 'Your next bite is right where you left it.', 'BACK TO IT', 'or press space to resume');
       announce('Game paused.');
     } else if (state === 'paused') {
       void unlockAudio();
-      setState('playing');
+      setState(pausedCountdown ? 'countdown' : 'playing');
       canvas.focus({ preventScroll: true });
-      announce('Game resumed.');
+      announce(pausedCountdown ? 'Countdown resumed.' : 'Game resumed.');
     }
+  }
+
+  function goHome() {
+    $('gameSettings').open = false;
+    $('gameStats').open = false;
+    countdownElapsed = 0;
+    pausedCountdown = false;
+    elapsed = 0;
+    engine.reset();
+    resetPresentation();
+    resetCheer();
+    setState('ready');
+    updateMode();
+    updateScores();
+    draw();
+    $('playerInput').focus({ preventScroll: true });
+    announce('Welcome home. Choose your map and players, then play.');
   }
 
   function advance() {
@@ -643,7 +671,7 @@
       setState(won ? 'won' : 'over');
       if (won) tone(880, 0.25);
       else playGameOver();
-      const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a rock', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
+      const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a stone block', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
       if (engine.aiCount) {
         const humanWon = engine.winner === 0;
         const title = humanWon ? 'You win the AI Arena!' : engine.endReason === 'filled' && engine.winner === null ? 'It’s a draw!' : 'The AI got this round.';
@@ -806,7 +834,7 @@
     $(id).addEventListener('toggle', () => {
       if (!$(id).open) return;
       $(other).open = false;
-      if (state === 'playing') pause();
+      if (state === 'playing' || state === 'countdown') pause();
     });
   }
   window.addEventListener('keydown', (event) => {
@@ -823,13 +851,13 @@
     if (key === ' ' && event.target.closest('button')) return;
     if (directionKeys[key] || [' ', 'r', 'Escape'].includes(key)) event.preventDefault();
     if (event.repeat) return;
-    if (directionKeys[key] && state === 'playing') {
+    if (directionKeys[key] && ['playing', 'countdown'].includes(state)) {
       const playerIndex = engine.playerCount === 2 && key.startsWith('Arrow') ? 1 : 0;
       engine.steer(directionKeys[key], playerIndex);
     }
     if (key === ' ') { if (['ready', 'over', 'won'].includes(state)) startGame(); else pause(); }
     if (key === 'r') startGame();
-    if (key === 'Escape' && state === 'playing') pause();
+    if (key === 'Escape' && ['playing', 'countdown'].includes(state)) pause();
   });
   $('playerInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
@@ -840,19 +868,24 @@
   $('playButton').addEventListener('click', () => state === 'paused' ? pause() : startGame());
   $('pauseButton').addEventListener('click', pause);
   $('restartButton').addEventListener('click', startGame);
+  $('homeButton').addEventListener('click', goHome);
+  $('homeSettings').addEventListener('click', () => {
+    $('gameSettings').open = true;
+    $('playersSelect').focus({ preventScroll: true });
+  });
   document.querySelectorAll('[data-direction]').forEach((button) => {
     button.addEventListener('click', () => {
       const playerIndex = Number(button.dataset.player || 0);
-      if (state === 'playing' && playerIndex < engine.playerCount) engine.steer(button.dataset.direction, playerIndex);
+      if (['playing', 'countdown'].includes(state) && playerIndex < engine.playerCount) engine.steer(button.dataset.direction, playerIndex);
     });
   });
   canvas.addEventListener('pointerdown', (event) => {
-    if (state !== 'playing' || !event.isPrimary) return;
+    if (!['playing', 'countdown'].includes(state) || !event.isPrimary) return;
     canvas.setPointerCapture(event.pointerId);
     gesture = { x: event.clientX, y: event.clientY, id: event.pointerId };
   });
   canvas.addEventListener('pointermove', (event) => {
-    if (!gesture || gesture.id !== event.pointerId || state !== 'playing') return;
+    if (!gesture || gesture.id !== event.pointerId || !['playing', 'countdown'].includes(state)) return;
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
@@ -861,7 +894,7 @@
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => canvas.addEventListener(name, () => { gesture = null; }));
   function suspendPlayback() {
-    if (state === 'playing') pause();
+    if (state === 'playing' || state === 'countdown') pause();
     else if (previewSound) { previewSound = false; syncMusic(); }
   }
   window.addEventListener('blur', suspendPlayback);
@@ -873,7 +906,7 @@
     if (soundOn) void unlockAudio();
   });
   $('testChompButton').addEventListener('click', () => {
-    if (state === 'playing') pause();
+    if (state === 'playing' || state === 'countdown') pause();
     soundOn = true;
     if (music.volume === 0) { music.volume = 0.75; $('volumeInput').value = '0.75'; }
     previewSound = false;
@@ -881,7 +914,7 @@
     playChomp();
   });
   $('testSoundButton').addEventListener('click', () => {
-    if (state === 'playing') pause();
+    if (state === 'playing' || state === 'countdown') pause();
     previewSound = !previewSound;
     if (previewSound) {
       soundOn = true;
@@ -892,10 +925,10 @@
   $('volumeInput').addEventListener('input', () => {
     music.volume = Number($('volumeInput').value);
     updateSoundControls();
-    if (soundOn && (state === 'playing' || previewSound)) syncMusic();
+    if (soundOn && (['playing', 'countdown'].includes(state) || previewSound)) syncMusic();
   });
   music.addEventListener('error', () => {
-    if (soundOn && (state === 'playing' || previewSound)) audioFailed(new Error('Media failed'), playbackRequest);
+    if (soundOn && (['playing', 'countdown'].includes(state) || previewSound)) audioFailed(new Error('Media failed'), playbackRequest);
   });
 
   function frame(time) {
@@ -903,6 +936,18 @@
     lastVisualFrame = time;
     if (state === 'playing') {
       if (!reducedMotion) visualTime += delta;
+    }
+    if (state === 'countdown') {
+      if (countdownLastTime !== null) countdownElapsed += Math.min(200, Math.max(0, time - countdownLastTime));
+      countdownLastTime = time;
+      const word = ['1', '2', '3', 'GO!'][Math.min(3, Math.floor(countdownElapsed / 1000))];
+      if ($('countdownNumber').textContent !== word) $('countdownNumber').textContent = word;
+      if (countdownElapsed >= 3450) {
+        pausedCountdown = false;
+        setState('playing');
+        canvas.focus({ preventScroll: true });
+        announce(`GO! ${playerName}, ${modes[engine.mode].name} mode with the ${avatars[playerAvatar]} avatar. ${steeringHint()}`);
+      }
     }
     if (cheerRemaining > 0 && cheerFrame !== null) {
       cheerRemaining -= Math.min(time - cheerFrame, 200);

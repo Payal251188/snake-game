@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — Play, grow, enjoy.</title>
-  <link rel="stylesheet" href="style.css?v=cheers-top1">
+  <link rel="stylesheet" href="style.css?v=home-countdown1">
   <script src="snake-engine.js?v=classic-mushrooms1" defer></script>
   <script src="snake-ai.js?v=simple1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
   <script src="snake-renderer.js?v=simple1" defer></script>
   <script src="snake-items-renderer.js?v=simple1" defer></script>
   <script src="snake-motion.js?v=simple1" defer></script>
-  <script src="snake-board.js?v=simple1" defer></script>
-  <script src="game.js?v=per-type-records1" defer></script>
+  <script src="snake-board.js?v=hazard-blocks1" defer></script>
+  <script src="game.js?v=home-countdown1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -103,7 +103,7 @@
     </header>
     <audio id="music" src="assets/snake-groove.mp3" preload="auto" loop playsinline></audio>
     <audio id="chomp" src="assets/chomp.wav" preload="auto" playsinline></audio>
-    <section class="game-shell" data-mode="obstacles" data-players="2" aria-label="Snake arcade">
+    <section class="game-shell" data-state="ready" data-mode="obstacles" data-players="2" aria-label="Snake arcade">
       <div class="scoreboard">
         <div class="score-group"><span class="score-label"><i class="dot"></i><span id="scoreLabel">P1 SCORE</span></span><span class="score-value" id="score">00</span></div>
         <div class="score-group opponent-score" id="opponentScoreGroup"><span class="score-label"><i class="dot"></i><span id="opponentScoreLabel">P2 SCORE</span></span><span class="score-value" id="opponentScore">00</span></div>
@@ -116,6 +116,14 @@
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Steer with WASD or arrow keys. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay"><div class="overlay-content">
+          <div class="home-intro" id="homeIntro">
+            <div class="home-mascots" aria-hidden="true"><img src="assets/snake-friend.svg" alt=""><img src="assets/snake-friend.svg" alt=""><img src="assets/snake-friend.svg" alt=""></div>
+            <span class="home-kicker">WELCOME TO SNAKE CLUB</span>
+            <h1>Small snake.<br> Big adventure.</h1>
+            <p>Grab a bite. Find your rhythm.<br>Make the next round your best.</p>
+            <span class="home-summary" id="homeSummary">Obstacles · Local versus</span>
+            <button class="home-settings-button" id="homeSettings" type="button">Choose map &amp; players ↗</button>
+          </div>
           <span class="overlay-tag" id="overlayTag">LET’S PLAY</span><h2 id="overlayTitle">One more bite?</h2><p id="overlayText">Eat, grow, and enjoy.</p>
           <div class="player-entry" id="playerEntry">
             <label for="playerInput" id="playerInputLabel">Player 1</label><input id="playerInput" name="player" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" aria-describedby="nameHint" required>
@@ -131,11 +139,12 @@
           </div>
           <button class="play-button" id="playButton" type="button"><span id="playLabel">LET’S PLAY</span><span aria-hidden="true">↗</span></button><span class="space-hint" id="spaceHint">or press space</span>
         </div></div>
+        <div class="countdown" id="countdown" role="status" aria-live="polite" aria-atomic="true" hidden><span class="countdown-caption">GET READY</span><strong id="countdownNumber">1</strong><span class="countdown-caption">Your next adventure starts here</span></div>
       </div>
       <div class="game-footer">
         <span class="speed-label">PACE <strong id="pace">1.0×</strong></span>
         <div class="friend-copy"><span id="friendMessage">Your snake friends are rooting for you!</span><span class="footer-message" id="footerMessage">Find your rhythm.</span></div>
-        <div class="game-actions"><button id="pauseButton" type="button" disabled>Ⅱ PAUSE</button><span class="divider"></span><button id="restartButton" type="button" aria-label="Start a new game">↻ RESTART</button></div>
+        <div class="game-actions"><button id="homeButton" type="button" aria-label="Return to home">⌂ HOME</button><span class="divider"></span><button id="pauseButton" type="button" disabled>Ⅱ PAUSE</button><span class="divider"></span><button id="restartButton" type="button" aria-label="Start a new game">↻ RESTART</button></div>
       </div>
     </section>
     <div class="touch-area">

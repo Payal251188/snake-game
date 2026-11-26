@@ -10,7 +10,7 @@ function recording() {
   const calls = [];
   const ctx = new Proxy({}, {
     get: (_, name) => name === 'createLinearGradient' ? () => { calls.push('gradient'); return { addColorStop() {} }; } : (...args) => calls.push([name, ...args]),
-    set: () => true,
+    set: (_, name, value) => { calls.push(['set', name, value]); return true; },
   });
   return { ctx, calls };
 }
@@ -77,6 +77,23 @@ test('static board bitmap is reused and invalidates only for map, backdrop or si
   options.obstacles.push({ x: 2, y: 2, type: 'rock' });
   painter.draw(ctx, options);
   assert.equal(surfaces, 4);
+});
+
+test('single stones use square masonry blocks and an outlined warning cross on every backdrop', () => {
+  for (const theme of Object.keys(SnakeBoard.themes)) {
+    const { ctx, calls } = recording();
+    const obstacles = [{ x: 3, y: 6, type: 'rock' }];
+    const before = JSON.stringify(obstacles);
+    const frame = SnakeBoard.createPainter(() => null).draw(ctx, { width: 320, height: 400, columns: 24, rows: 20, obstacles, theme });
+    const tiles = calls.filter((call) => Array.isArray(call) && call[0] === 'roundRect');
+    assert.equal(tiles.length, 3, 'board floor plus two rectangular stone faces');
+    assert.ok(Math.abs(tiles[1][3] - frame.cell * 0.84) < .001);
+    assert.ok(Math.abs(tiles[1][4] - frame.cell * 0.84) < .001);
+    const strokes = calls.filter((call) => Array.isArray(call) && call[0] === 'set' && call[1] === 'strokeStyle').map((call) => call[2]);
+    assert.ok(strokes.includes('#263b44'), 'dark outline makes the mark readable on the stone');
+    assert.ok(strokes.includes('#ffd181'), 'amber warning cross distinguishes hazards from animals');
+    assert.equal(JSON.stringify(obstacles), before, 'visual changes never alter collision cells');
+  }
 });
 
 test('all simple backdrops render without gameplay randomness or an offscreen canvas', () => {

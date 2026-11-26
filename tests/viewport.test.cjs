@@ -11,6 +11,18 @@ try {
   if (error.code !== 'MODULE_NOT_FOUND') throw error;
 }
 
+async function createTestPage(context) {
+  const page = await context.newPage();
+  await page.clock.install();
+  return page;
+}
+
+async function startPlaying(page) {
+  await page.locator('#playButton').click();
+  if (await page.locator('.game-shell').getAttribute('data-state') === 'countdown') await page.clock.runFor(3600);
+  await page.waitForFunction(() => document.querySelector('.game-shell').dataset.state === 'playing');
+}
+
 const sizes = [
   [1440, 900, false], [1366, 768, false], [1024, 600, false],
   [768, 1024, true], [390, 844, true], [375, 667, true],
@@ -28,12 +40,18 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         await t.test(`${width}×${height}${touch ? ' touch' : ''} · ${selection === 'ai' ? 'AI Arena' : 'local versus'}`, async () => {
           const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
           try {
-            const page = await context.newPage();
+            const page = await createTestPage(context);
             const errors = [];
             page.on('pageerror', (error) => errors.push(error.message));
             await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+            assert.equal(await page.locator('#homeIntro').isVisible(), true);
+            const homeFits = await page.locator('#playButton').evaluate((button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.top >= 0 && rect.bottom <= innerHeight && document.documentElement.scrollHeight <= innerHeight;
+            });
+            assert.equal(homeFits, true, 'home Play button is visible without scrolling');
             await page.locator('#playerInput').fill('Alex');
-            await page.locator('#settingsSummary').click();
+            await page.locator('#homeSettings').click();
             await page.getByText('Appearance', { exact: true }).click();
             const skin = selection === 'ai' ? 'ember' : 'neon';
             await page.locator('#skinSelect').selectOption(skin);
@@ -43,7 +61,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
               await page.locator('#foodSelect').selectOption('10');
             }
             await page.keyboard.press('Escape');
-            await page.locator('#playButton').click();
+            await startPlaying(page);
             assert.equal(await page.locator('#board').getAttribute('data-skin'), skin);
             assert.equal(await page.locator('#board').getAttribute('data-layout'), '2d');
             assert.equal(await page.locator('#viewSelect').count(), 0);
@@ -102,7 +120,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
       await t.test(`skin rendering, paused changes and reload · ${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
         try {
-          const page = await context.newPage();
+          const page = await createTestPage(context);
           const errors = [];
           page.on('pageerror', (error) => errors.push(error.message));
           await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
@@ -120,7 +138,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           assert.equal(previews.size, 4, 'each skin has distinct preview pixels');
           assert.equal(boards.size, 4, 'each skin changes the actual board rendering');
           await page.keyboard.press('Escape');
-          await page.locator('#playButton').click();
+          await startPlaying(page);
           await page.locator('#pauseButton').click();
           const score = await page.locator('#score').textContent();
           await page.locator('#settingsSummary').click();
@@ -142,7 +160,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
       await t.test(`three visible friends cheer on an actual catch · ${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
         try {
-          const page = await context.newPage();
+          const page = await createTestPage(context);
           // In Classic solo, this seed places primary prey immediately ahead of the spawn.
           await page.addInitScript(() => { Math.random = () => 250.5 / 477; });
           await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -152,7 +170,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await page.locator('#playersSelect').selectOption('1');
           await page.locator('#modeSelect').selectOption('classic');
           await page.keyboard.press('Escape');
-          await page.locator('#playButton').click();
+          await startPlaying(page);
           await page.waitForFunction(() => document.getElementById('snakeFriends').dataset.cheering === 'true');
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
           assert.match(await page.locator('#friendMessage').textContent(), /Nice catch, Alex/);
@@ -176,7 +194,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
       await t.test(`mushroom inversion and delayed herb recovery · ${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
         try {
-          const page = await context.newPage();
+          const page = await createTestPage(context);
           const errors = [];
           page.on('pageerror', (error) => errors.push(error.message));
           await page.addInitScript(() => { Math.random = () => 0; });
@@ -186,7 +204,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await page.locator('#playersSelect').selectOption('1');
           await page.locator('#modeSelect').selectOption('classic');
           await page.keyboard.press('Escape');
-          assert.equal(await page.locator('#mushroomStatus').isVisible(), true);
+          assert.equal(await page.locator('#mushroomStatus').getAttribute('hidden'), null);
           assert.match(await page.locator('#mushroomStatus').textContent(), /4/);
           // Test-only placement/observation: no production test hooks or altered input rules.
           await page.evaluate(() => {
@@ -214,7 +232,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
               return result;
             };
           });
-          await page.locator('#playButton').click();
+          await startPlaying(page);
           await page.waitForFunction(() => window.__effectSnapshot?.reversed);
           assert.equal(await page.locator('#score').textContent(), '50');
           assert.equal(await page.locator('#controlStatus').isVisible(), true);
@@ -228,7 +246,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           const paused = await page.evaluate(() => window.__effectSnapshot.elapsed);
           await page.waitForTimeout(150);
           assert.equal(await page.evaluate(() => window.__effectSnapshot.elapsed), paused);
-          await page.locator('#playButton').click();
+          await startPlaying(page);
           await page.waitForFunction(() => window.__effectSnapshot.herbCount > 0, null, { timeout: 10000 });
           assert.match(await page.locator('#controlStatus').textContent(), /herb ready/);
           await page.evaluate(() => { window.__collectHerb = true; });
@@ -247,10 +265,69 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
       });
     }
     for (const [width, height] of [[1280, 800], [375, 667]]) {
+      await t.test(`home, real countdown, rematch and paused countdown · ${width}×${height}`, async () => {
+        const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
+        try {
+          const page = await createTestPage(context);
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+          assert.equal(await page.locator('#homeIntro').isVisible(), true);
+          await page.evaluate(() => {
+            const reset = SnakeGame.prototype.reset;
+            SnakeGame.prototype.reset = function (options) {
+              const result = reset.call(this, options);
+              window.homeTestEngine = this;
+              return result;
+            };
+          });
+          await page.locator('#playerInput').fill('Alex');
+          await page.locator('#playButton').click();
+          await page.clock.runFor(100);
+          const snakes = await page.evaluate(() => JSON.stringify(window.homeTestEngine.players.map((player) => player.snake)));
+          assert.equal(await page.locator('#countdownNumber').textContent(), '1');
+          for (const word of ['2', '3', 'GO!']) {
+            await page.clock.runFor(1000);
+            assert.equal(await page.locator('#countdownNumber').textContent(), word);
+            assert.equal(await page.evaluate(() => window.homeTestEngine.elapsedMs), 0);
+            assert.equal(await page.evaluate(() => JSON.stringify(window.homeTestEngine.players.map((player) => player.snake))), snakes);
+          }
+          await page.clock.runFor(1100);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
+          assert.ok(await page.evaluate(() => window.homeTestEngine.elapsedMs > 0));
+          await page.evaluate(() => {
+            const g = window.homeTestEngine;
+            g.obstacles.push({ ...g.nextHead(g.players[0]), type: 'wall' });
+          });
+          await page.clock.runFor(300);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'over');
+          await page.locator('#playButton').click();
+          assert.equal(await page.locator('#countdownNumber').textContent(), '1');
+          await page.clock.runFor(1100);
+          assert.equal(await page.locator('#countdownNumber').textContent(), '2');
+          await page.locator('#settingsSummary').click();
+          await page.waitForFunction(() => document.querySelector('.game-shell').dataset.state === 'paused');
+          await page.clock.runFor(5000);
+          assert.equal(await page.evaluate(() => window.homeTestEngine.elapsedMs), 0);
+          await page.keyboard.press('Escape');
+          await page.locator('#playButton').click();
+          assert.equal(await page.locator('#countdownNumber').textContent(), '2');
+          await page.clock.runFor(2600);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
+          await page.locator('#homeButton').click();
+          assert.equal(await page.locator('#homeIntro').isVisible(), true);
+          await page.clock.runFor(5000);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'ready');
+          assert.equal(await page.evaluate(() => window.homeTestEngine.elapsedMs), 0);
+          assert.deepEqual(errors, []);
+        } finally { await context.close(); }
+      });
+    }
+    for (const [width, height] of [[1280, 800], [375, 667]]) {
       await t.test(`per-map/play-type best scores persist independently · ${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
         try {
-          const page = await context.newPage();
+          const page = await createTestPage(context);
           const errors = [];
           page.on('pageerror', (error) => errors.push(error.message));
           await page.addInitScript(() => { Math.random = () => 0; });
@@ -294,7 +371,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             };
           });
           await page.locator('#playerInput').fill('Alex');
-          await page.locator('#playButton').click();
+          await startPlaying(page);
           await page.waitForFunction(() => document.querySelector('#best').textContent === '11');
           await page.locator('#pauseButton').click();
           assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('snake-club-record-v3:classic:solo')).name), 'Alex');
@@ -313,28 +390,28 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
     await t.test('mushroom status follows Classic/Obstacles/Maze selection', async () => {
       const context = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
       try {
-        const page = await context.newPage();
+        const page = await createTestPage(context);
         await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
         for (const mode of ['classic', 'obstacles', 'maze', 'classic']) {
           await page.locator('#settingsSummary').click();
           await page.locator('#modeSelect').selectOption(mode);
           await page.keyboard.press('Escape');
-          assert.equal(await page.locator('#mushroomStatus').isVisible(), mode === 'classic');
+          assert.equal(await page.locator('#mushroomStatus').getAttribute('hidden') === null, mode === 'classic');
           for (const id of ['mushroomRow', 'herbRow']) {
             assert.equal(await page.locator(`#${id}`).getAttribute('hidden') === null, mode === 'classic');
           }
         }
         await page.reload();
-        assert.equal(await page.locator('#mushroomStatus').isVisible(), true);
+        assert.equal(await page.locator('#mushroomStatus').getAttribute('hidden'), null);
       } finally { await context.close(); }
     });
     await t.test('simple settings, separate stats and saved backdrops', async () => {
       const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       try {
-        const page = await context.newPage();
+        const page = await createTestPage(context);
         await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
         await page.locator('#playerInput').fill('Alex');
-        await page.locator('#playButton').click();
+        await startPlaying(page);
         await page.locator('#settingsSummary').click();
         await page.getByText('Appearance', { exact: true }).click();
         await page.locator('#backdropSelect').selectOption('meadow');
