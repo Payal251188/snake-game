@@ -9,19 +9,21 @@
   const animals = ['rat', 'rabbit', 'frog'];
   const opposite = { up: 'down', down: 'up', left: 'right', right: 'left' };
   const herbDelayMs = 5000;
+  const baseInterval = 240;
+  const animalActions = { rat: { delay: 1800, duration: 100 }, rabbit: { delay: 2400, duration: 160 }, frog: { delay: 3600, duration: 200 } };
 
   class SnakeGame {
-    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0 } = {}) {
+    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0, animatedFood = false, powerupsEnabled = false } = {}) {
       if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 6 || rows < 6) {
         throw new RangeError('The board must be at least 6 × 6 cells.');
       }
       this.columns = columns;
       this.rows = rows;
       this.random = random;
-      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount });
+      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount, animatedFood, powerupsEnabled });
     }
 
-    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount } = {}) {
+    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount, animatedFood = this.animatedFood, powerupsEnabled = this.powerupsEnabled } = {}) {
       if (!['classic', 'obstacles', 'maze'].includes(mode)) throw new RangeError('Unknown game mode.');
       if (![1, 2].includes(playerCount)) throw new RangeError('Choose one or two players.');
       if (!Number.isInteger(aiCount) || aiCount < 0 || aiCount > 3 || (aiCount > 0 && playerCount !== 1)) throw new RangeError('AI Arena supports one human and up to three bots.');
@@ -32,6 +34,13 @@
       this.aiCount = aiCount;
       this.foodCount = foodCount;
       this.mushroomCount = mushroomCount;
+      this.animatedFood = Boolean(animatedFood);
+      this.powerupsEnabled = Boolean(powerupsEnabled);
+      this.powerups = [];
+      this.nextPowerupAt = 7000;
+      this.slowUntil = 0;
+      this.lastEvents = [];
+      this.foodSerial = 0;
       this.mushrooms = [];
       this.herbs = [];
       this.elapsedMs = 0;
@@ -56,6 +65,7 @@
           direction: facingRight ? 'right' : 'left', turns: [], score: 0,
           ai: index >= playerCount, alive: true,
           controlsReversed: false, herbReadyAt: null, mushroomsEaten: 0, herbsEaten: 0,
+          shieldUntil: 0, powerupsCollected: 0,
           eaten: { rat: 0, rabbit: 0, frog: 0 }, goldenEaten: 0, collision: null,
         };
       });
@@ -88,7 +98,8 @@
     get goldenCaught() { return this.players.reduce((sum, player) => sum + player.goldenEaten, 0); }
     get mushroomCaught() { return this.players.reduce((sum, player) => sum + player.mushroomsEaten, 0); }
     get herbsCaught() { return this.players.reduce((sum, player) => sum + player.herbsEaten, 0); }
-    get totalCatches() { return this.preyCaught + this.goldenCaught + this.mushroomCaught + this.herbsCaught; }
+    get powerupsCaught() { return this.players.reduce((sum, player) => sum + player.powerupsCollected, 0); }
+    get totalCatches() { return this.preyCaught + this.goldenCaught + this.mushroomCaught + this.herbsCaught + this.powerupsCaught; }
     get wraps() { return this.mode === 'classic'; }
     get livingPlayers() { return this.players.filter((player) => player.alive); }
     get foods() {
@@ -131,11 +142,18 @@
       return [...cells.values()];
     }
 
-    // All snakes share one pace; combined catches count toward the next level.
-    get level() { return 1 + Math.floor(Math.min(...Object.values(this.totalEaten)) / 10); }
+    // Human catches set the shared pace. AI catches still count in round statistics.
+    get progressionEaten() {
+      const humans = this.players.slice(0, this.playerCount);
+      return Object.fromEntries(animals.map((animal) => [animal, humans.reduce((sum, player) => sum + player.eaten[animal], 0)]));
+    }
+    get level() { return 1 + Math.floor(Math.min(...Object.values(this.progressionEaten)) / 10); }
+    get baseInterval() { return baseInterval; }
     get speedMultiplier() { return 1 + (this.level - 1) * 0.2; }
-    get interval() { return Math.max(40, 160 / this.speedMultiplier); }
-    get foodType() { return this.food ? animals[this.preyCaught % 3] : null; }
+    get slowRemainingMs() { return Math.max(0, this.slowUntil - this.elapsedMs); }
+    get interval() { return Math.max(40, baseInterval / this.speedMultiplier) * (this.slowRemainingMs ? 1.5 : 1); }
+    get foodType() { return this.food ? this.food.type || animals[this.preyCaught % 3] : null; }
+    shieldRemainingMs(player) { return Math.max(0, player.shieldUntil - this.elapsedMs); }
 
     turn(direction, playerIndex = 0) {
       const player = this.players[playerIndex];
@@ -182,7 +200,7 @@
     }
 
     emptyCells(reserved = []) {
-      const occupied = new Set([...this.livingPlayers.flatMap((player) => player.snake), ...this.obstacles, ...this.mushrooms, ...this.herbs, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
+      const occupied = new Set([...this.livingPlayers.flatMap((player) => player.snake), ...this.obstacles, ...this.mushrooms, ...this.herbs, ...this.powerups, ...reserved.filter(Boolean)].map(({ x, y }) => `${x},${y}`));
       const empty = [];
       for (let y = 0; y < this.rows; y++) {
         for (let x = 0; x < this.columns; x++) {
@@ -196,8 +214,54 @@
       return empty.length ? empty[Math.min(empty.length - 1, Math.max(0, Math.floor(this.random() * empty.length)))] : null;
     }
 
+    prepareFood(cell, type) {
+      if (!cell || !this.animatedFood) return cell;
+      return { ...cell, type, id: ++this.foodSerial, motion: { nextAt: this.elapsedMs + animalActions[type].delay + this.random() * 600 } };
+    }
+
     placeFood() {
-      this.food = this.pickCell(this.emptyCells([this.goldenFood, ...this.extraFoods]));
+      this.food = this.prepareFood(this.pickCell(this.emptyCells([this.goldenFood, ...this.extraFoods])), animals[this.preyCaught % 3]);
+    }
+
+    updateAnimalMotion() {
+      if (!this.animatedFood) return;
+      const distance = (a, b) => {
+        let x = Math.abs(a.x - b.x); let y = Math.abs(a.y - b.y);
+        if (this.wraps) { x = Math.min(x, this.columns - x); y = Math.min(y, this.rows - y); }
+        return x + y;
+      };
+      for (const food of [this.food, ...this.extraFoods].filter(Boolean)) {
+        if (!food.motion || this.elapsedMs < food.motion.nextAt) continue;
+        const action = animalActions[food.type];
+        food.motion.nextAt = this.elapsedMs + action.delay + this.random() * 600;
+        // Let a nearby snake finish its catch: animals never dodge at the last instant.
+        if (this.livingPlayers.some((player) => distance(food, player.snake[0]) <= 2)) continue;
+        const empty = this.emptyCells([...this.foods, this.goldenFood]).filter((cell) => this.livingPlayers.every((player) => distance(cell, player.snake[0]) > 2));
+        let candidates = empty;
+        if (food.type !== 'frog') {
+          const free = new Set(empty.map((cell) => `${cell.x},${cell.y}`));
+          const wrap = (cell) => this.wraps ? { x: (cell.x + this.columns) % this.columns, y: (cell.y + this.rows) % this.rows } : cell;
+          const steps = food.type === 'rabbit' ? 2 : 1;
+          candidates = Object.values(directions).map((delta) => {
+            const middle = wrap({ x: food.x + delta.x, y: food.y + delta.y });
+            const target = wrap({ x: food.x + delta.x * steps, y: food.y + delta.y * steps });
+            return free.has(`${middle.x},${middle.y}`) && free.has(`${target.x},${target.y}`) ? target : null;
+          }).filter(Boolean);
+        }
+        const next = this.pickCell(candidates);
+        if (!next) continue;
+        food.motion = { from: { x: food.x, y: food.y }, startedAt: this.elapsedMs, duration: Math.min(action.duration, this.interval * 0.8), nextAt: food.motion.nextAt };
+        food.x = next.x; food.y = next.y;
+      }
+    }
+
+    updatePowerups() {
+      this.powerups = this.powerups.filter((item) => item.expiresAt > this.elapsedMs);
+      if (!this.powerupsEnabled || this.powerups.length || this.elapsedMs < this.nextPowerupAt) return;
+      const cell = this.pickCell(this.emptyCells([...this.foods, this.goldenFood]));
+      if (!cell) return;
+      this.powerups.push({ ...cell, type: this.random() < 0.5 ? 'shield' : 'slow', expiresAt: this.elapsedMs + 10000 });
+      this.nextPowerupAt = this.elapsedMs + 14000;
     }
 
     replenishFood() {
@@ -207,7 +271,8 @@
         const cell = this.pickCell(empty);
         const index = empty.indexOf(cell);
         empty.splice(index, 1);
-        this.extraFoods.push({ ...cell, type: animals[(this.preyCaught + this.foods.length) % animals.length] });
+        const type = animals[(this.preyCaught + this.foods.length) % animals.length];
+        this.extraFoods.push(this.prepareFood({ ...cell, type }, type));
       }
     }
 
@@ -253,7 +318,8 @@
         const eatsGolden = this.goldenFood !== null && same(head, this.goldenFood);
         const mushroom = this.mushrooms.find((cell) => same(cell, head));
         const herb = this.herbs.find((cell) => same(cell, head));
-        return { head, prey, eatsGolden, mushroom, herb, body: prey || eatsGolden || mushroom ? player.snake : player.snake.slice(0, -1) };
+        const powerup = this.powerups.find((cell) => same(cell, head));
+        return { head, prey, eatsGolden, mushroom, herb, powerup, body: prey || eatsGolden || mushroom ? player.snake : player.snake.slice(0, -1) };
       });
     }
 
@@ -262,6 +328,8 @@
       this.players.forEach((player, index) => {
         const move = moves[index];
         if (!move) return;
+        player.collision = null;
+        if (move.blocked) return;
         const { head } = move;
         const headClash = moves.some((other, j) => other && j !== index && (
           same(head, other.head) || (same(head, this.players[j].snake[0]) && same(other.head, player.snake[0]))
@@ -275,6 +343,22 @@
       });
     }
 
+    resolveShields(moves) {
+      // A shield stops a dangerous move instead of allowing bodies to overlap a wall/snake.
+      for (let pass = 0; pass < this.players.length; pass++) {
+        const protectedPlayers = this.players.map((player, index) => player.alive && player.collision && this.shieldRemainingMs(player) > 0 ? index : -1).filter((index) => index >= 0);
+        if (!protectedPlayers.length) break;
+        for (const index of protectedPlayers) {
+          const player = this.players[index];
+          player.shieldUntil = 0;
+          moves[index] = { head: { ...player.snake[0] }, body: player.snake, blocked: true };
+          this.lastEvents.push({ type: 'shield-block', playerIndex: index });
+        }
+        // Stopped tails no longer vacate; recheck everyone from the resulting shared snapshot.
+        this.resolveCollisions(moves);
+      }
+    }
+
     scoreWinner() {
       const contenders = this.players.map((player, index) => ({ player, index })).filter(({ player }) => player.alive);
       const highest = Math.max(...contenders.map(({ player }) => player.score));
@@ -286,10 +370,13 @@
       if (this.status !== 'playing') return 'idle';
       this.lastEater = null;
       this.lastCatches = [];
+      this.lastEvents = [];
       this.elapsedMs += this.interval;
       this.updateConsumables();
+      this.updatePowerups();
       const moves = this.predictMoves();
       this.resolveCollisions(moves);
+      this.resolveShields(moves);
       const crashed = this.players.filter((player) => player.alive && player.collision);
       // Preserve the original sudden-death solo/local-versus rules.
       if (!this.aiCount && crashed.length) {
@@ -307,13 +394,18 @@
           player.turns = [];
           return;
         }
+        if (move.blocked) return;
         player.snake.unshift(move.head);
         const grows = move.prey || move.eatsGolden || move.mushroom;
         if (!grows) player.snake.pop();
-        if (grows || move.herb) {
-          const type = move.mushroom ? 'mushroom' : move.herb ? 'herb' : move.eatsGolden ? 'golden' : move.prey.type;
-          const points = move.mushroom ? 50 : move.herb ? 0 : move.eatsGolden ? 5 : 1;
-          if (move.mushroom) {
+        if (grows || move.herb || move.powerup) {
+          const type = move.powerup ? move.powerup.type : move.mushroom ? 'mushroom' : move.herb ? 'herb' : move.eatsGolden ? 'golden' : move.prey.type;
+          const points = move.powerup ? 0 : move.mushroom ? 50 : move.herb ? 0 : move.eatsGolden ? 5 : 1;
+          if (move.powerup) {
+            player.powerupsCollected++;
+            if (type === 'shield') player.shieldUntil = this.elapsedMs + 8000;
+            else this.slowUntil = this.elapsedMs + 6000;
+          } else if (move.mushroom) {
             player.mushroomsEaten++;
             if (!player.controlsReversed) {
               player.controlsReversed = true;
@@ -332,11 +424,13 @@
           this.lastCatches.push({ playerIndex: index, type, points });
         }
       });
-      const successfulMoves = moves.filter((move, index) => move && !this.players[index].collision);
+      const successfulMoves = moves.filter((move, index) => move && !move.blocked && !this.players[index].collision);
       const consumed = successfulMoves.filter((move) => move.prey).map((move) => move.prey);
       const caughtGolden = successfulMoves.some((move) => move.eatsGolden);
       this.mushrooms = this.mushrooms.filter((cell) => !successfulMoves.some((move) => move.mushroom && same(cell, move.mushroom)));
       this.herbs = this.herbs.filter((cell) => !successfulMoves.some((move) => move.herb && same(cell, move.herb)));
+      this.powerups = this.powerups.filter((cell) => !successfulMoves.some((move) => move.powerup && same(cell, move.powerup)));
+      if (successfulMoves.some((move) => move.powerup)) this.nextPowerupAt = this.elapsedMs + 8000;
       if (caughtGolden) {
         this.goldenFood = null;
         this.goldenTicks = 0;
@@ -347,6 +441,7 @@
       if (this.lastCatches.length || crashed.length) this.replenishFood();
       if (!caughtGolden) this.updateGoldenFood();
       this.updateConsumables();
+      this.updateAnimalMotion();
 
       if (this.aiCount) {
         if (!this.players[0].alive) {
@@ -363,7 +458,7 @@
         }
       }
       if (this.lastCatches.length) {
-        if (!this.foods.length && !this.goldenFood && !this.mushrooms.length && !this.herbs.length) {
+        if (!this.foods.length && !this.goldenFood && !this.mushrooms.length && !this.herbs.length && !this.powerups.length) {
           this.status = 'won';
           this.endReason = 'filled';
           this.winner = this.scoreWinner();
@@ -371,7 +466,7 @@
         }
         return 'ate';
       }
-      return crashed.length ? 'eliminated' : 'moved';
+      return crashed.length ? 'eliminated' : this.lastEvents.length ? 'blocked' : 'moved';
     }
   }
 

@@ -207,7 +207,7 @@ test('reset restores the board, direction, queue, score and speed', () => {
   assert.equal(g.direction, 'right');
   assert.deepEqual(g.turns, []);
   assert.equal(g.score, 0);
-  assert.equal(g.interval, 160);
+  assert.equal(g.interval, 240);
   assert.equal(g.level, 1);
   assert.deepEqual(g.eaten, { rat: 0, rabbit: 0, frog: 0 });
   assert.equal(g.status, 'playing');
@@ -256,14 +256,14 @@ test('levels require 10 of every animal, repeat at 20 each, and reset each round
     assert.equal(g.tick(), 'ate');
     assert.equal(g.level, 1 + Math.floor(catches / 30));
     assert.equal(Object.values(g.eaten).reduce((a, b) => a + b), catches);
-    if (catches === 29) { assert.equal(g.eaten.frog, 9); assert.equal(g.interval, 160); }
+    if (catches === 29) { assert.equal(g.eaten.frog, 9); assert.equal(g.interval, 240); }
     if (catches === 30) { assert.deepEqual(g.eaten, { rat: 10, rabbit: 10, frog: 10 }); assert.equal(g.speedMultiplier, 1.2); }
   }
   assert.deepEqual(g.eaten, { rat: 20, rabbit: 20, frog: 20 });
   assert.equal(g.speedMultiplier, 1.4);
-  assert.ok(g.interval < 160 / 1.2);
+  assert.ok(g.interval < 240 / 1.2);
   g.reset();
   assert.equal(g.level, 1);
-  assert.equal(g.interval, 160);
+  assert.equal(g.interval, 240);
   assert.deepEqual(g.eaten, { rat: 0, rabbit: 0, frog: 0 });
 });

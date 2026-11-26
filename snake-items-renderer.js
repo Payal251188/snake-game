@@ -36,16 +36,32 @@
     ctx.moveTo(0.175, 0.255); ctx.lineTo(0.385, 0.255); ctx.stroke();
   }
 
-  function draw(ctx, { mushrooms, herbs, left, top, cell, time = 0, animate = false }) {
+  function powerup(ctx, item) {
+    const shield = item.type === 'shield';
+    ellipse(ctx, 0.04, 0.05, 0.41, 0.41, shield ? '#367d9b' : '#7153a3');
+    ellipse(ctx, -0.03, -0.04, 0.36, 0.36, shield ? '#a2e5ee' : '#c6a9f5');
+    ellipse(ctx, -0.14, -0.18, 0.1, 0.065, '#ffffff99', -0.5);
+    ctx.strokeStyle = '#f5fff4'; ctx.lineWidth = 0.05;
+    if (shield) {
+      ctx.fillStyle = '#2c7a96'; ctx.beginPath(); ctx.moveTo(0, -0.23); ctx.lineTo(0.2, -0.15);
+      ctx.lineTo(0.16, 0.1); ctx.quadraticCurveTo(0, 0.34, -0.16, 0.1); ctx.lineTo(-0.2, -0.15);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(0, 0, 0.22, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -0.15); ctx.lineTo(0, 0); ctx.lineTo(0.12, 0.08); ctx.stroke();
+    }
+  }
+
+  function draw(ctx, { mushrooms, herbs, powerups = [], left, top, cell, time = 0, animate = false }) {
     if (cell <= 0) return;
-    for (const [items, sprite] of [[mushrooms, mushroom], [herbs, herb]]) {
+    for (const [items, sprite] of [[mushrooms, mushroom], [herbs, herb], [powerups, powerup]]) {
       for (const item of items) {
         ctx.save();
         ctx.translate(left + (item.x + 0.5) * cell, top + (item.y + 0.5) * cell);
         ctx.scale(cell, cell);
         ellipse(ctx, 0.05, 0.27, 0.34, 0.12, '#0008');
         ctx.translate(0, -0.08 - (animate ? Math.sin(time / 900 + item.x + item.y) * 0.03 : 0));
-        sprite(ctx);
+        sprite(ctx, item);
         ctx.restore();
       }
     }

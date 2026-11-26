@@ -79,9 +79,9 @@ test('input commands reverse on both axes while physical turn rules stay unchang
 test('herbs wait five simulation seconds, stay available, and a cure gives no points or growth', () => {
   const g = game();
   const player = poison(g);
-  for (let i = 0; i < 31; i++) g.tick();
+  for (let i = 0; i < 20; i++) g.tick();
   assert.equal(g.herbs.length, 0);
-  assert.equal(g.herbWaitMs(player), 40);
+  assert.equal(g.herbWaitMs(player), 200);
   g.status = 'paused';
   const paused = JSON.stringify(g);
   assert.equal(g.tick(), 'idle');
@@ -113,8 +113,8 @@ test('herbs wait five simulation seconds, stay available, and a cure gives no po
 test('herb timing uses active milliseconds rather than a fixed number of moves', () => {
   const g = game();
   const player = poison(g);
-  g.eaten = { rat: 10, rabbit: 10, frog: 10 }; // Level two: 133.33 ms per step.
-  for (let i = 0; i < 37; i++) g.tick();
+  g.eaten = { rat: 10, rabbit: 10, frog: 10 }; // Level two: 200 ms per step.
+  for (let i = 0; i < 24; i++) g.tick();
   assert.equal(g.herbs.length, 0);
   assert.ok(g.herbWaitMs(player) > 0);
   g.tick();
@@ -130,7 +130,7 @@ test('repeated mushrooms do not toggle inversion or postpone a pending/available
   assert.equal(g.score, 100);
   assert.equal(player.controlsReversed, true);
   assert.equal(player.herbReadyAt, readyAt);
-  assert.equal(g.herbWaitMs(player), 4840);
+  assert.equal(g.herbWaitMs(player), 5000 - g.baseInterval);
   g.elapsedMs = readyAt;
   g.updateConsumables();
   const herb = { ...g.herbs[0] };

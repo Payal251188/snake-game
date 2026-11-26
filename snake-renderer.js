@@ -44,20 +44,6 @@
     const palette = skin.palette;
     const points = player.snake.map(({ x, y }) => ({ x: left + (x + 0.5) * cell, y: top + (y + 0.5) * cell }));
     const radius = (i) => cell * (0.025 + 0.3 * Math.min(1, (points.length - 1 - i) / 3));
-    // A separate contact shadow makes the rounded body read as raised above the arena.
-    ctx.save();
-    ctx.translate(cell * 0.05, cell * 0.15);
-    ctx.strokeStyle = '#0008'; ctx.lineWidth = cell * 0.38; ctx.lineCap = 'round';
-    ctx.shadowColor = '#0008'; ctx.shadowBlur = cell * 0.16;
-    ctx.beginPath();
-    for (let i = points.length - 1; i > 0; i--) {
-      const a = points[i]; const b = points[i - 1];
-      if (Math.abs(a.x - b.x) > cell * 1.5 || Math.abs(a.y - b.y) > cell * 1.5) continue;
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-    }
-    ctx.stroke();
-    ellipse(ctx, points[0].x, points[0].y, cell * 0.4, cell * 0.25, '#0007');
-    ctx.restore();
     ctx.lineCap = 'round';
     // Connected, tapered body rather than separate square tiles.
     for (let i = points.length - 1; i > 0; i--) {
@@ -82,10 +68,6 @@
       // Rounded joints and a narrowing tail keep the silhouette continuous.
       ellipse(ctx, b.x, b.y, rb, rb, bodyGradient);
       ellipse(ctx, a.x, a.y, ra, ra, bodyGradient);
-      ctx.save(); ctx.globalAlpha = 0.24;
-      ctx.strokeStyle = palette.light; ctx.lineWidth = cell * 0.055;
-      ctx.beginPath(); ctx.moveTo(a.x - nx * ra * 0.45, a.y - ny * ra * 0.45);
-      ctx.lineTo(b.x - nx * rb * 0.45, b.y - ny * rb * 0.45); ctx.stroke(); ctx.restore();
     }
     for (let i = points.length - 1; i > 0; i--) {
       const p = points[i]; const next = points[i - 1];

@@ -3,12 +3,12 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4 });
+  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true });
   const storageKey = 'snake-club-record-v2';
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
   const skinKey = 'snake-club-skin-v1';
-  const viewKey = 'snake-club-view-v1';
+  const backdropKey = 'snake-club-backdrop-v1';
   const modeKey = 'snake-club-mode-v1';
   const playersKey = 'snake-club-players-v1';
   const opponentKey = 'snake-club-player-two-v1';
@@ -23,13 +23,12 @@
   const avatars = { mint: 'Mint', peach: 'Peach', olive: 'Olive' };
   let playerAvatar = 'mint';
   let playerSkin = 'classic';
-  let preferredView = 'follow';
-  let sceneView = 'overview';
-  let cameraFocus = null;
+  let backdrop = 'night';
+  let previousPlayers = SnakeMotion.capture(engine.players);
   let visualTime = 0;
   let lastVisualFrame = null;
   let sceneDirty = true;
-  const pickupEffects = new SnakeScene.PickupEffects();
+  const boardPainter = SnakeBoard.createPainter();
   const cleanName = (value) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   let reducedMotion = motionPreference.matches;
@@ -78,7 +77,8 @@
     const golden = engine.lastCatches.some(({ type }) => type === 'golden');
     const mushroom = engine.lastCatches.some(({ type }) => type === 'mushroom');
     const herb = engine.lastCatches.some(({ type }) => type === 'herb');
-    $('friendMessage').textContent = mushroom ? `Mushroom! +50 for ${names}! 🍄`
+    const powerup = engine.lastCatches.find(({ type }) => type === 'shield' || type === 'slow');
+    $('friendMessage').textContent = powerup ? `${powerup.type === 'shield' ? 'Shield ready! 🛡' : 'Slow and steady! ⏱'} ${names}` : mushroom ? `Mushroom! +50 for ${names}! 🍄`
       : herb ? `Healing herb! Controls restored for ${names}! 🌿`
       : golden ? `Golden catch! +5 for ${names}! ⭐` : `Nice catch, ${names}! 👏`;
   }
@@ -110,8 +110,7 @@
     const savedFood = Number(localStorage.getItem(foodKey));
     if ([1, 5, 10].includes(savedFood)) engine.reset({ foodCount: savedFood });
     playerSkin = SnakeSkins.get(localStorage.getItem(skinKey)).id;
-    const savedView = localStorage.getItem(viewKey);
-    if (['overview', 'follow'].includes(savedView)) preferredView = savedView;
+    backdrop = SnakeBoard.resolve(localStorage.getItem(backdropKey));
     const savedAvatar = localStorage.getItem(avatarKey);
     if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
     const savedMode = localStorage.getItem(modeKey);
@@ -176,36 +175,26 @@
   });
 
   function resetPresentation() {
-    cameraFocus = null;
+    previousPlayers = SnakeMotion.capture(engine.players);
     visualTime = 0;
-    pickupEffects.clear();
+    sceneDirty = true;
   }
-  function updateSceneUI() {
-    const next = engine.playerCount === 2 ? 'overview' : preferredView;
-    if (sceneView !== next) cameraFocus = null;
-    sceneView = next;
-    $('viewSelect').value = next;
-    $('viewSelect').disabled = engine.playerCount === 2;
-    $('viewHint').textContent = engine.playerCount === 2
-      ? 'Local versus keeps the full arena visible for both players.'
-      : 'Immersive follows your snake with a sector map. Compact screens use the full-arena view.';
-  }
-  $('viewSelect').addEventListener('change', () => {
-    const selected = $('viewSelect').value;
-    if (!['overview', 'follow'].includes(selected) || engine.playerCount === 2) { updateSceneUI(); return; }
-    preferredView = selected;
+  $('backdropSelect').addEventListener('change', () => {
+    const selected = $('backdropSelect').value;
+    if (!Object.hasOwn(SnakeBoard.themes, selected)) { $('backdropSelect').value = backdrop; return; }
+    backdrop = selected;
     if (canSave) {
-      try { localStorage.setItem(viewKey, preferredView); } catch { storageUnavailable(); }
+      try { localStorage.setItem(backdropKey, backdrop); } catch { storageUnavailable(); }
     }
-    cameraFocus = null;
-    updateSceneUI();
+    canvas.dataset.backdrop = backdrop;
     draw();
-    announce(selected === 'follow' ? 'Immersive follow camera enabled. The sector map shows the whole arena.' : 'Orbit view enabled. The whole arena is visible.');
+    announce(`${SnakeBoard.themes[backdrop].name} backdrop selected.`);
   });
 
   function updateMode() {
     updateSkinUI();
-    updateSceneUI();
+    $('backdropSelect').value = backdrop;
+    canvas.dataset.backdrop = backdrop;
     $('modeSelect').value = engine.mode;
     document.querySelector('.game-shell').dataset.mode = engine.mode;
     document.querySelector('.game-shell').dataset.players = engine.aiCount ? 'ai' : String(engine.playerCount);
@@ -302,7 +291,7 @@
     $('goldenStatus').dataset.active = String(Boolean(engine.goldenFood));
     $('goldenStatus').textContent = engine.goldenFood
       ? `On the board! +5 points · ${Math.ceil(engine.goldenTicks * engine.interval / 1000)}s left`
-      : 'Appears randomly during play · catch it for +5 points';
+      : '★ Golden food · +5';
   }
   function updateEffectStatus() {
     $('mushroomStatus').textContent = `🍄 ${engine.mushrooms.length} · +50`;
@@ -313,6 +302,10 @@
     const wait = affected.length ? Math.ceil(Math.min(...affected.map((player) => engine.herbWaitMs(player))) / 1000) : 0;
     const remedy = engine.herbs.length ? '🌿 herb ready' : wait > 0 ? `🌿 in ${wait}s` : '🌿 awaiting space';
     $('controlStatus').textContent = affected.length ? `${labels.join('/')} REVERSED · ${remedy}` : '';
+    const powers = engine.players.flatMap((player, index) => !player.ai && engine.shieldRemainingMs(player) ? [`🛡 P${index + 1} ${Math.ceil(engine.shieldRemainingMs(player) / 1000)}s`] : []);
+    if (engine.slowRemainingMs) powers.push(`⏱ SLOW ${Math.ceil(engine.slowRemainingMs / 1000)}s`);
+    $('powerupStatus').hidden = powers.length === 0;
+    $('powerupStatus').textContent = powers.join(' · ');
   }
   function updateScores() {
     $('score').textContent = format(engine.score);
@@ -329,14 +322,16 @@
     $('playerAvatar').setAttribute('alt', `${avatars[playerAvatar]} human face avatar`);
     $('bestName').textContent = bestName || 'No record yet';
     $('preyName').textContent = engine.foods.length > 1 ? `${engine.foods.length} items` : engine.foodType || 'None';
-    const speed = `${(160 / engine.interval).toFixed(1)}×`;
+    const speed = `${(engine.baseInterval / engine.interval).toFixed(1)}×`;
     $('pace').textContent = speed;
     $('level').textContent = String(engine.level);
+    $('arenaLevel').textContent = String(engine.level);
     $('levelSpeed').textContent = speed;
     $('totalEaten').textContent = String(engine.totalCatches);
     $('goldenCount').textContent = String(engine.goldenCaught);
     $('mushroomCount').textContent = String(engine.mushroomCaught);
     $('herbCount').textContent = String(engine.herbsCaught);
+    $('powerupCount').textContent = String(engine.powerupsCaught);
     updateGoldenStatus();
     updateEffectStatus();
     const catches = engine.totalEaten;
@@ -344,12 +339,23 @@
       $(`${animal}Count`).textContent = String(catches[animal]);
       $(`${animal}Target`).textContent = String(engine.level * 10);
     }
-    $('levelHint').textContent = `Next level: reach ${engine.level * 10} of each animal. Each level adds 20% of base speed.`;
+    const target = engine.level * 10;
+    for (const animal of ['rat', 'rabbit', 'frog']) {
+      const count = Math.min(engine.progressionEaten[animal], target);
+      $(`${animal}Progress`).max = target;
+      $(`${animal}Progress`).value = count;
+      $(`${animal}ProgressText`).textContent = `${count}/${target}`;
+    }
+    $('levelHint').textContent = `Next level: ${target} of each animal. Human catches only; AI catches never increase the level.`;
   }
 
   function setState(next) {
     state = next;
     sceneDirty = true;
+    if (state === 'playing') {
+      $('gameSettings').open = false;
+      $('gameStats').open = false;
+    }
     if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
     document.querySelector('.game-shell').dataset.state = state;
     $('matchStatus').textContent = {
@@ -519,7 +525,7 @@
     playerName = name;
     $('playerInput').value = name;
     $('playerInput').setAttribute('aria-invalid', 'false');
-    $('nameHint').textContent = 'Enter a name, then choose your avatar. Music starts when you play.';
+    $('nameHint').textContent = 'Your name is saved on this device. Avatar is optional.';
     updateAvatarPicker();
     if (canSave) {
       try {
@@ -528,14 +534,13 @@
         localStorage.setItem(opponentKey, opponentName);
       } catch { storageUnavailable(); }
     }
-    $('gameSettings').open = false;
     void unlockAudio();
     engine.reset();
     resetPresentation();
     updateMode();
     resetCheer();
     startingBest = best;
-    elapsed = -450; // A brief runway to choose your first direction.
+    elapsed = -250; // A brief runway to choose your first direction.
     updateScores();
     setState('playing');
     $('footerMessage').textContent = modes[engine.mode].hint;
@@ -551,13 +556,13 @@
     } else if (state === 'paused') {
       void unlockAudio();
       setState('playing');
-      elapsed = 0;
       canvas.focus({ preventScroll: true });
       announce('Game resumed.');
     }
   }
 
   function advance() {
+    previousPlayers = SnakeMotion.capture(engine.players);
     const previousLevel = engine.level;
     const hadGoldenFood = Boolean(engine.goldenFood);
     const hadHerb = engine.herbs.length > 0;
@@ -567,6 +572,7 @@
     const bonusNotice = !hadGoldenFood && engine.goldenFood ? 'Golden food appeared! Catch the gold star for 5 bonus points.'
       : hadGoldenFood && !engine.goldenFood && !caughtGolden && result !== 'lost' ? 'Golden food expired. Watch for the next one!' : '';
     const herbNotice = !hadHerb && engine.herbs.length ? 'Healing herbs appeared! Collect a green herb to restore normal controls.' : '';
+    const shieldNotice = engine.lastEvents.filter((event) => event.type === 'shield-block').map((event) => `${nameFor(event.playerIndex)}: shield absorbed a hit! Turn to safety.`).join(' ');
     if (engine.lastCatches.length) {
       for (const { playerIndex } of engine.lastCatches) {
         if (engine.players[playerIndex].ai) continue; // Bots never replace human records.
@@ -580,12 +586,6 @@
           }
         }
       }
-      if (!reducedMotion) {
-        for (const caught of engine.lastCatches) {
-          const head = engine.players[caught.playerIndex].snake[0];
-          pickupEffects.emit({ ...head, type: caught.type, points: caught.points }, visualTime);
-        }
-      }
       updateScores();
       cheer();
       playChomp();
@@ -596,13 +596,16 @@
       const catches = engine.lastCatches.map(({ playerIndex, type, points }) => {
         if (type === 'mushroom') return `${nameFor(playerIndex)} ate a mushroom! +50. Controls reversed: left ↔ right, up ↔ down until a herb.`;
         if (type === 'herb') return `${nameFor(playerIndex)} collected a healing herb. Normal controls restored.`;
+        if (type === 'shield') return `${nameFor(playerIndex)} collected a shield: one safe collision, up to 8 seconds.`;
+        if (type === 'slow') return `${nameFor(playerIndex)} collected slow motion: the board slows for 6 seconds.`;
         return `${nameFor(playerIndex)} ${type === 'golden' ? 'caught golden food' : 'caught another bite'}! +${points}`;
       });
       $('footerMessage').textContent = `${levelUp ? `Level ${engine.level}! ` : ''}${catches.join(' · ')}`;
-      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)}: ${type === 'golden' ? `Golden food! +${points} bonus points. ` : ''}Score ${engine.players[playerIndex].score}.`).join(' ')} Next prey: ${engine.foodType || 'none'}. ${catches.filter((_, index) => ['mushroom', 'herb'].includes(engine.lastCatches[index].type)).join(' ')} ${bonusNotice} ${herbNotice}`);
+      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)}: ${type === 'golden' ? `Golden food! +${points} bonus points. ` : ''}Score ${engine.players[playerIndex].score}.`).join(' ')} Next prey: ${engine.foodType || 'none'}. ${catches.filter((_, index) => ['mushroom', 'herb', 'shield', 'slow'].includes(engine.lastCatches[index].type)).join(' ')} ${bonusNotice} ${herbNotice} ${shieldNotice}`);
     } else {
       updateScores();
-      if (bonusNotice || herbNotice) announce([bonusNotice, herbNotice].filter(Boolean).join(' '));
+      if (bonusNotice || herbNotice || shieldNotice) announce([bonusNotice, herbNotice, shieldNotice].filter(Boolean).join(' '));
+      if (shieldNotice) $('footerMessage').textContent = shieldNotice;
     }
     if (result === 'lost' || result === 'won') {
       const won = result === 'won';
@@ -643,12 +646,13 @@
     ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rotation, 0, Math.PI * 2); ctx.fill();
   }
 
-  function drawPrey(x, y, cell, type, time) {
+  function drawPrey(x, y, cell, type, time, lift = 0) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(cell, cell);
     ellipse(0.04, 0.25, 0.36, 0.15, '#0008');
-    ctx.translate(0, -0.1 - (reducedMotion ? 0 : Math.sin(time / 850 + x) * 0.025));
+    ctx.translate(0, -0.08 - (reducedMotion ? 0 : lift));
+    if (!reducedMotion && type === 'rat') ctx.rotate(Math.sin(time / 100 + x) * 0.035);
     // A warm halo keeps the small animals easy to spot against the court.
     ellipse(0, 0, 0.48, 0.46, '#f8b48722');
     if (type === 'frog') {
@@ -657,7 +661,8 @@
         ellipse(side * 0.23, -0.24, 0.13, 0.14, '#a8d95f');
       }
       ellipse(0, 0.05, 0.27, 0.3, '#8dc34f');
-      ellipse(0, 0.11, 0.16, 0.18, '#c1db7a');
+      const croak = reducedMotion ? 1 : 1 + Math.max(0, Math.sin(time / 350 + x)) * 0.12;
+      ellipse(0, 0.11, 0.16 * croak, 0.18 * croak, '#c1db7a');
       for (const side of [-1, 1]) {
         ellipse(side * 0.23, -0.27, 0.075, 0.08, '#f8edbc');
         ellipse(side * 0.23, -0.29, 0.035, 0.05, '#172c23');
@@ -672,7 +677,7 @@
       ellipse(0, 0.12, 0.26, 0.28, fur);
       if (rabbit) ellipse(-0.25, 0.22, 0.1, 0.1, '#fff2db');
       for (const side of [-1, 1]) {
-        ellipse(side * 0.16, rabbit ? -0.3 : -0.2, rabbit ? 0.085 : 0.13, rabbit ? 0.23 : 0.13, fur, side * 0.2);
+        ellipse(side * 0.16, rabbit ? -0.3 : -0.2, rabbit ? 0.085 : 0.13, rabbit ? 0.23 : 0.13, fur, side * 0.2 + (rabbit && !reducedMotion ? Math.sin(time / 500) * 0.06 : 0));
         ellipse(side * 0.16, rabbit ? -0.31 : -0.2, rabbit ? 0.04 : 0.075, rabbit ? 0.15 : 0.075, '#d99f99', side * 0.2);
       }
       ellipse(0, -0.08, 0.21, 0.2, fur);
@@ -716,86 +721,69 @@
 
   function draw() {
     sceneDirty = false;
-    ctx.clearRect(0, 0, width, height);
-    const target = engine.players[0].snake[0] || { x: engine.columns / 2, y: engine.rows / 2 };
-    const focus = cameraFocus || { x: target.x + 0.5, y: target.y + 0.5 };
-    const frame = SnakeScene.layout({ width, height, columns: engine.columns, rows: engine.rows, view: sceneView, focus });
-    const { cell, left, top } = frame;
-    SnakeScene.background(ctx, { width, height, time: visualTime, focus: !reducedMotion && frame.view === 'follow' ? focus : undefined, pixelRatio: canvas.width / width });
-    const viewLabel = frame.view === 'follow' ? 'IMMERSIVE · FOLLOW' : 'ORBIT · FULL ARENA';
-    if ($('cameraLabel').textContent !== viewLabel) $('cameraLabel').textContent = viewLabel;
-    canvas.dataset.view = frame.view;
-    ctx.save();
-    ctx.translate(frame.centerX, frame.centerY);
-    ctx.transform(1, 0, -frame.skew, frame.tilt, 0, 0);
-    SnakeScene.terrain(ctx, frame, engine.obstacles);
-    for (const food of engine.foods) drawPrey(left + (food.x + 0.5) * cell, top + (food.y + 0.5) * cell, cell, food.type, visualTime);
+    const { cell, left, top } = boardPainter.draw(ctx, {
+      width, height, columns: engine.columns, rows: engine.rows, obstacles: engine.obstacles,
+      theme: backdrop, pixelRatio: canvas.width / width,
+    });
+    canvas.dataset.layout = '2d';
+    const progress = ['playing', 'paused'].includes(state) ? Math.max(0, Math.min(1, elapsed / engine.interval)) : 1;
+    const players = SnakeMotion.interpolate(previousPlayers, engine.players, progress, engine);
+    const foodTime = engine.elapsedMs + Math.max(0, elapsed);
+    for (const food of engine.foods) {
+      const point = reducedMotion ? { ...food, lift: 0 } : SnakeMotion.foodPosition(food, foodTime, engine);
+      drawPrey(left + (point.x + 0.5) * cell, top + (point.y + 0.5) * cell, cell, food.type, visualTime, point.lift);
+    }
     if (engine.goldenFood) drawGoldenFood(left + (engine.goldenFood.x + 0.5) * cell, top + (engine.goldenFood.y + 0.5) * cell, cell, visualTime);
-    SnakeItemsRenderer.draw(ctx, { mushrooms: engine.mushrooms, herbs: engine.herbs, left, top, cell, time: visualTime, animate: !reducedMotion });
-    engine.players.forEach((player, index) => {
+    SnakeItemsRenderer.draw(ctx, { mushrooms: engine.mushrooms, herbs: engine.herbs, powerups: engine.powerups, left, top, cell, time: visualTime, animate: !reducedMotion });
+    players.forEach((player, index) => {
       if (!player.alive) return;
       const skin = SnakeSkins.forPlayer(index, playerSkin);
       SnakeRenderer.draw(ctx, { left, top, cell, time: visualTime, player, skin, animate: state === 'playing' && !reducedMotion });
+      const x = left + (player.snake[0].x + 0.5) * cell;
+      const y = top + (player.snake[0].y + 0.5) * cell;
+      if (engine.shieldRemainingMs(player)) {
+        ctx.save(); ctx.strokeStyle = '#a2e6ff'; ctx.lineWidth = Math.max(1, cell * 0.045);
+        ctx.beginPath(); ctx.ellipse(x, y, cell * 0.56, cell * 0.43, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      }
       if (engine.players.length > 1 || player.controlsReversed) {
         ctx.fillStyle = skin.palette.label;
-        ctx.font = `bold ${Math.max(9, cell * 0.4)}px system-ui`;
-        ctx.textAlign = 'center';
+        ctx.font = `bold ${Math.max(9, cell * 0.4)}px system-ui`; ctx.textAlign = 'center';
         const label = player.ai ? `AI ${index}` : engine.playerCount === 1 ? 'YOU' : `P${index + 1}`;
-        ctx.fillText(`${label}${player.controlsReversed ? ' ↔↕' : ''}`, left + (player.snake[0].x + 0.5) * cell, top + (player.snake[0].y - 0.15) * cell);
+        ctx.fillText(`${label}${player.controlsReversed ? ' ↔↕' : ''}`, x, y - cell * 0.65);
       }
     });
-    if (!reducedMotion) pickupEffects.draw(ctx, frame, visualTime);
-    ctx.restore();
-    if (frame.view === 'follow') {
-      SnakeScene.minimap(ctx, {
-        width, height, columns: engine.columns, rows: engine.rows, players: engine.players,
-        colors: engine.players.map((_, index) => SnakeSkins.forPlayer(index, playerSkin).palette.label),
-        obstacles: engine.obstacles, foods: engine.foods, mushrooms: engine.mushrooms, herbs: engine.herbs, goldenFood: engine.goldenFood, frame,
-      });
-    }
   }
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
     width = Math.max(1, rect.width);
     height = Math.max(1, rect.height);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = SnakeBoard.pixelRatio(width, height, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
     draw();
   }
 
-  function updateFullscreenUI() {
-    const supported = Boolean(document.documentElement?.requestFullscreen);
-    $('fullscreenButton').hidden = !supported;
-    $('fullscreenButton').textContent = document.fullscreenElement ? '↙ EXIT FULLSCREEN' : '⛶ EXPAND VIEW';
-    $('fullscreenButton').setAttribute('aria-pressed', String(Boolean(document.fullscreenElement)));
-  }
-  $('fullscreenButton').addEventListener('click', async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else if (document.documentElement?.requestFullscreen) await document.documentElement.requestFullscreen();
-      else announce('Fullscreen is not supported by this browser.');
-    } catch { announce('Fullscreen could not start. You can still play in this window.'); }
-  });
-  document.addEventListener('fullscreenchange', updateFullscreenUI);
-  updateFullscreenUI();
   motionPreference.addEventListener?.('change', (event) => {
     reducedMotion = event.matches;
-    if (reducedMotion) pickupEffects.clear();
     draw();
   });
 
   const directionKeys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
-  $('gameSettings').addEventListener('toggle', () => {
-    if ($('gameSettings').open && state === 'playing') pause();
-  });
+  for (const [id, other] of [['gameSettings', 'gameStats'], ['gameStats', 'gameSettings']]) {
+    $(id).addEventListener('toggle', () => {
+      if (!$(id).open) return;
+      $(other).open = false;
+      if (state === 'playing') pause();
+    });
+  }
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && $('gameSettings').open) {
+    if (event.key === 'Escape' && ($('gameSettings').open || $('gameStats').open)) {
       event.preventDefault();
-      $('gameSettings').open = false;
-      $('settingsSummary').focus({ preventScroll: true });
+      const menu = $('gameSettings').open ? 'gameSettings' : 'gameStats';
+      $(menu).open = false;
+      $(menu === 'gameSettings' ? 'settingsSummary' : 'statsSummary').focus({ preventScroll: true });
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || /^(INPUT|TEXTAREA|SELECT|SUMMARY)$/.test(event.target.tagName) || event.target.isContentEditable || event.target.closest('.settings-panel')) return;
@@ -884,10 +872,6 @@
     lastVisualFrame = time;
     if (state === 'playing') {
       if (!reducedMotion) visualTime += delta;
-      const head = engine.players[0].snake[0];
-      if (head) cameraFocus = SnakeScene.follow(cameraFocus, { x: head.x + 0.5, y: head.y + 0.5 }, {
-        columns: engine.columns, rows: engine.rows, delta, snap: reducedMotion,
-      });
     }
     if (cheerRemaining > 0 && cheerFrame !== null) {
       cheerRemaining -= Math.min(time - cheerFrame, 200);

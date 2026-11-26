@@ -34,17 +34,19 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
             await page.locator('#playerInput').fill('Alex');
             await page.locator('#settingsSummary').click();
+            await page.getByText('Appearance', { exact: true }).click();
             const skin = selection === 'ai' ? 'ember' : 'neon';
             await page.locator('#skinSelect').selectOption(skin);
             if (selection === 'ai') {
               await page.locator('#playersSelect').selectOption('ai');
+              await page.getByText('More options', { exact: true }).click();
               await page.locator('#foodSelect').selectOption('10');
             }
             await page.keyboard.press('Escape');
             await page.locator('#playButton').click();
             assert.equal(await page.locator('#board').getAttribute('data-skin'), skin);
-            const immersiveFits = await page.locator('#board').evaluate((canvas) => canvas.clientHeight >= 160 && canvas.clientWidth >= 260);
-            assert.equal(await page.locator('#board').getAttribute('data-view'), selection === 'ai' && immersiveFits ? 'follow' : 'overview');
+            assert.equal(await page.locator('#board').getAttribute('data-layout'), '2d');
+            assert.equal(await page.locator('#viewSelect').count(), 0);
             if (selection === 'ai') {
               assert.equal(await page.locator('#opponentScoreLabel').textContent(), 'AI LEFT');
               assert.equal(await page.locator('#preyName').textContent(), '10 items');
@@ -103,6 +105,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
           await page.locator('#playerInput').fill('Alex');
           await page.locator('#settingsSummary').click();
+          await page.getByText('Appearance', { exact: true }).click();
           const previews = new Set();
           const boards = new Set();
           for (const skin of ['classic', 'neon', 'ember', 'frost']) {
@@ -238,50 +241,26 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         }
       });
     }
-    await t.test('camera switching, paused pixels and saved view work in the orbital theme', async () => {
+    await t.test('simple settings, separate stats and saved backdrops', async () => {
       const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       try {
         const page = await context.newPage();
-        const errors = [];
-        page.on('pageerror', (error) => errors.push(error.message));
         await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
         await page.locator('#playerInput').fill('Alex');
-        await page.locator('#settingsSummary').click();
-        assert.equal(await page.locator('#viewSelect').isDisabled(), true);
-        await page.locator('#playersSelect').selectOption('1');
-        await page.locator('#viewSelect').selectOption('follow');
-        await page.keyboard.press('Escape');
         await page.locator('#playButton').click();
-        assert.equal(await page.locator('#board').getAttribute('data-view'), 'follow');
-        await page.locator('#pauseButton').click();
-        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const frozen = await page.locator('#board').evaluate((canvas) => canvas.toDataURL());
-        await page.waitForTimeout(150);
-        assert.equal(await page.locator('#board').evaluate((canvas) => canvas.toDataURL()), frozen);
         await page.locator('#settingsSummary').click();
-        await page.locator('#viewSelect').selectOption('overview');
-        assert.equal(await page.locator('#board').getAttribute('data-view'), 'overview');
+        await page.getByText('Appearance', { exact: true }).click();
+        await page.locator('#backdropSelect').selectOption('meadow');
+        assert.equal(await page.locator('#board').getAttribute('data-backdrop'), 'meadow');
+        await page.keyboard.press('Escape');
+        await page.locator('#statsSummary').click();
+        assert.equal(await page.locator('#gameSettings').getAttribute('open'), null);
+        assert.equal(await page.locator('#ratProgress').isVisible(), true);
         assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
         await page.reload();
-        assert.equal(await page.locator('#viewSelect').inputValue(), 'overview');
-        assert.equal(await page.locator('#board').getAttribute('data-view'), 'overview');
-        assert.deepEqual(errors, []);
-      } finally { await context.close(); }
-    });
-    await t.test('native fullscreen enters and exits without page overflow', async () => {
-      const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-      try {
-        const page = await context.newPage();
-        await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
-        await page.locator('#playerInput').fill('Alex');
-        await page.locator('#playButton').click();
-        await page.locator('#fullscreenButton').click();
-        await page.waitForFunction(() => Boolean(document.fullscreenElement) && document.getElementById('fullscreenButton').getAttribute('aria-pressed') === 'true');
-        assert.equal(await page.locator('#fullscreenButton').getAttribute('aria-pressed'), 'true');
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight), true);
-        await page.evaluate(() => document.exitFullscreen());
-        await page.waitForFunction(() => !document.fullscreenElement && document.getElementById('fullscreenButton').getAttribute('aria-pressed') === 'false');
-        assert.equal(await page.locator('#fullscreenButton').getAttribute('aria-pressed'), 'false');
+        assert.equal(await page.locator('#board').getAttribute('data-backdrop'), 'meadow');
+        assert.equal(await page.locator('#viewSelect').count(), 0);
+        assert.equal(await page.locator('#fullscreenButton').count(), 0);
       } finally { await context.close(); }
     });
   } finally {

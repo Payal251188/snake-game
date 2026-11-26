@@ -46,7 +46,7 @@
     const player = game.players[playerIndex];
     if (!player || !player.alive || game.status !== 'playing') return null;
     const ordinaryFood = [...game.foods, game.goldenFood].filter(Boolean);
-    const targets = new Set((player.controlsReversed && game.herbs.length ? game.herbs : ordinaryFood).map(key));
+    const targets = new Set((player.controlsReversed && game.herbs.length ? game.herbs : [...ordinaryFood, ...game.powerups]).map(key));
     const growthCells = new Set([...ordinaryFood, ...game.mushrooms].map(key));
     const mushrooms = new Set(game.mushrooms.map(key));
     const occupied = new Set([

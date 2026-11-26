@@ -8,11 +8,12 @@ const { SnakeAI } = require('../snake-ai.js');
 const { SnakeSkins } = require('../snake-skins.js');
 const { SnakeRenderer } = require('../snake-renderer.js');
 const { SnakeItemsRenderer } = require('../snake-items-renderer.js');
-const { SnakeScene } = require('../snake-scene.js');
+const { SnakeMotion } = require('../snake-motion.js');
+const { SnakeBoard } = require('../snake-board.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
 // Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
-function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, scene = SnakeScene } = {}) {
+function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer } = {}) {
   const elements = new Map();
   const noop = () => {};
   let focused;
@@ -87,9 +88,10 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     clearInterval: (id) => timers.delete(id),
     SnakeAI,
     SnakeSkins,
-    SnakeRenderer,
+    SnakeRenderer: renderer,
     SnakeItemsRenderer,
-    SnakeScene: scene,
+    SnakeMotion,
+    SnakeBoard,
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => motionQuery, devicePixelRatio: 1,
@@ -335,6 +337,31 @@ test('AI Arena exposes bot counts, hides second-human input and remembers food d
   next.click('restartButton');
   assert.ok(next.engine.players.every((player) => player.alive && player.score === 0));
   assert.equal(next.engine.foods.length, 10);
+});
+
+test('power-up status and round counts update, freeze on pause and clear on restart', () => {
+  const g = load();
+  g.click('playButton');
+  g.engine.food = { x: 0, y: 0 };
+  g.engine.extraFoods = [];
+  g.engine.mushrooms = [];
+  g.engine.powerups = [{ ...g.engine.nextHead(g.engine.players[0]), type: 'shield', expiresAt: 10000 }];
+  for (const time of [0, 200, 400, 600]) g.frame(time);
+  assert.equal(g.element('powerupStatus').hidden, false);
+  assert.match(g.element('powerupStatus').textContent, /P1 8s/);
+  assert.equal(g.element('powerupCount').textContent, '1');
+  g.engine.powerups = [{ ...g.engine.nextHead(g.engine.players[0]), type: 'slow', expiresAt: 10000 }];
+  g.frame(800);
+  assert.match(g.element('powerupStatus').textContent, /SLOW 6s/);
+  assert.equal(g.element('powerupCount').textContent, '2');
+  assert.equal(g.element('totalEaten').textContent, '2');
+  g.click('pauseButton');
+  const paused = JSON.stringify(g.engine);
+  g.frame(5000);
+  assert.equal(JSON.stringify(g.engine), paused);
+  g.click('restartButton');
+  assert.equal(g.element('powerupStatus').hidden, true);
+  assert.equal(g.element('powerupCount').textContent, '0');
 });
 
 test('AI catches update standings without replacing human records', () => {
@@ -802,78 +829,63 @@ test('invalid saved avatars default safely and blocked storage still allows a ch
   assert.equal(g.element('playerAvatar').dataset.avatar, 'olive');
 });
 
-test('camera choices persist without changing gameplay and local versus stays in orbit view', () => {
+test('simple backdrops persist independently and never reset a round', () => {
   const g = load();
-  assert.equal(g.element('board').dataset.view, 'follow');
   const before = JSON.stringify(g.engine);
-  g.element('viewSelect').value = 'overview';
-  g.element('viewSelect').listeners.change();
-  assert.equal(g.element('board').dataset.view, 'overview');
-  assert.equal(JSON.stringify(g.engine), before);
-  assert.equal(g.storage.get('snake-club-view-v1'), 'overview');
-  assert.equal(load({ storage: g.storage }).element('board').dataset.view, 'overview');
-  const local = load({ playerCount: null });
-  assert.equal(local.element('viewSelect').disabled, true);
-  assert.equal(local.element('board').dataset.view, 'overview');
-  local.element('viewSelect').value = 'follow';
-  local.element('viewSelect').listeners.change();
-  assert.equal(local.element('board').dataset.view, 'overview');
-  for (const view of ['unknown', '__proto__', '']) {
-    assert.equal(load({ storage: new Map([['snake-club-view-v1', view]]) }).element('board').dataset.view, 'follow');
+  for (const theme of ['night', 'meadow', 'sunset']) {
+    g.element('backdropSelect').value = theme;
+    g.element('backdropSelect').listeners.change();
+    assert.equal(g.element('board').dataset.backdrop, theme);
+    assert.equal(g.element('board').dataset.layout, '2d');
+    assert.equal(JSON.stringify(g.engine), before);
+    assert.equal(load({ storage: g.storage }).element('backdropSelect').value, theme);
   }
+  const invalid = load({ storage: new Map([['snake-club-backdrop-v1', '__proto__'], ['snake-club-view-v1', 'follow']]) });
+  assert.equal(invalid.element('board').dataset.backdrop, 'night');
+  assert.equal(invalid.element('board').dataset.layout, '2d');
 });
 
-test('orbit and immersive cameras produce identical simulation outcomes', () => {
-  const outcomes = [];
-  for (const view of ['overview', 'follow']) {
-    const g = load({ reducedMotion: false });
-    g.element('viewSelect').value = view;
-    g.element('viewSelect').listeners.change();
-    g.click('playButton');
-    g.key('ArrowUp');
-    for (const time of [0, 200, 400, 600, 800, 1000, 1200]) g.frame(time);
-    outcomes.push(JSON.stringify(g.engine));
-  }
-  assert.equal(outcomes[0], outcomes[1]);
-});
-
-test('ambient visual time freezes while paused and responds to live reduced-motion changes', () => {
-  const frames = [];
-  const scene = { ...SnakeScene, background: (ctx, options) => { frames.push({ ...options }); SnakeScene.background(ctx, options); } };
-  const g = load({ reducedMotion: false, scene });
+test('snake rendering interpolates between ticks and does not rewind after pause', () => {
+  const positions = [];
+  const renderer = { draw(ctx, args) {
+    if (args.player.ai === false) positions.push({ ...args.player.snake[0] });
+    SnakeRenderer.draw(ctx, args);
+  }};
+  const g = load({ renderer, reducedMotion: false });
   g.click('playButton');
-  g.frame(0); g.frame(100); g.frame(200);
-  const moving = frames.at(-1).time;
-  assert.ok(moving > 0);
+  for (const time of [0, 200, 400, 500]) g.frame(time);
+  const start = positions.at(-1).x;
+  g.frame(560);
+  const middle = positions.at(-1).x;
+  assert.ok(middle > start && middle < g.engine.snake[0].x);
   g.click('pauseButton');
-  g.frame(300); g.frame(400);
-  assert.equal(frames.at(-1).time, moving);
+  g.frame(1000);
+  const frozen = positions.at(-1).x;
   g.click('playButton');
-  g.frame(500);
-  assert.ok(frames.at(-1).time > moving);
-  g.setReducedMotion(true);
-  const calm = frames.at(-1).time;
-  g.frame(600); g.frame(700);
-  assert.equal(frames.at(-1).time, calm);
-  assert.equal(frames.at(-1).focus, undefined, 'reduced motion disables starfield parallax');
+  g.frame(5000);
+  assert.equal(positions.at(-1).x, frozen);
 });
 
-test('fullscreen gracefully handles unsupported APIs, denied requests and exit', async () => {
+test('Settings and Stats are separate and opening either pauses the game', () => {
   const g = load();
-  assert.equal(g.element('fullscreenButton').hidden, true);
-  await g.click('fullscreenButton');
-  assert.match(g.element('announcer').textContent, /not supported/);
-  g.document.documentElement = { requestFullscreen: () => Promise.reject(Error('Denied')) };
-  g.documentEvents.fullscreenchange();
-  assert.equal(g.element('fullscreenButton').hidden, false);
-  await g.click('fullscreenButton');
-  assert.match(g.element('announcer').textContent, /could not start/);
-  g.document.documentElement.requestFullscreen = async () => { g.document.fullscreenElement = {}; g.documentEvents.fullscreenchange(); };
-  await g.click('fullscreenButton');
-  assert.equal(g.element('fullscreenButton').attrs['aria-pressed'], 'true');
-  g.document.exitFullscreen = async () => { g.document.fullscreenElement = null; g.documentEvents.fullscreenchange(); };
-  await g.click('fullscreenButton');
-  assert.equal(g.element('fullscreenButton').attrs['aria-pressed'], 'false');
+  g.click('playButton');
+  g.element('gameStats').open = true;
+  g.element('gameStats').listeners.toggle();
+  assert.equal(g.state(), 'paused');
+  g.key('Escape');
+  assert.equal(g.element('gameStats').open, false);
+  assert.equal(g.focus(), 'statsSummary');
+  g.element('gameStats').open = true;
+  g.element('gameSettings').open = true;
+  g.element('gameSettings').listeners.toggle();
+  assert.equal(g.element('gameStats').open, false);
+  g.click('playButton');
+  assert.equal(g.element('gameSettings').open, false);
+  g.element('gameStats').open = true;
+  g.element('gameStats').listeners.toggle();
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+  assert.equal(g.element('gameStats').open, false);
 });
 
 test('skin selection previews and saves immediately without changing the simulation', () => {
