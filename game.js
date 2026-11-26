@@ -294,6 +294,10 @@
       : '★ Golden food · +5';
   }
   function updateEffectStatus() {
+    const classic = engine.mode === 'classic';
+    $('mushroomStatus').hidden = !classic;
+    $('mushroomRow').hidden = !classic;
+    $('herbRow').hidden = !classic;
     $('mushroomStatus').textContent = `🍄 ${engine.mushrooms.length} · +50`;
     const affected = engine.players.filter((player) => !player.ai && player.alive && player.controlsReversed);
     $('controlStatus').hidden = affected.length === 0;

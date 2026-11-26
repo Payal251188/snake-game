@@ -178,6 +178,11 @@
     }
 
     updateConsumables() {
+      if (this.mode !== 'classic') {
+        this.mushrooms = [];
+        this.herbs = [];
+        return;
+      }
       const ready = this.livingPlayers.filter((player) => player.controlsReversed && this.herbWaitMs(player) === 0).length;
       this.herbs.splice(ready); // Remove unneeded cures after recovery or elimination.
       while (this.herbs.length < ready) {

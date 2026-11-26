@@ -24,12 +24,12 @@ function assertSafeItems(g) {
   assert.ok(items.every((cell) => !blocked.has(key(cell))), 'items never overlap bodies or obstacles');
 }
 
-test('four random mushrooms spawn safely in all layouts and player configurations', () => {
+test('mushrooms spawn safely only in Classic across player configurations', () => {
   for (const mode of ['classic', 'obstacles', 'maze']) {
     for (const options of [{ playerCount: 1 }, { playerCount: 2 }, { aiCount: 3 }]) {
       for (const random of [() => 0, () => 0.5, () => 1]) {
         const g = game({ mode, foodCount: 10, random, ...options });
-        assert.equal(g.mushrooms.length, 4);
+        assert.equal(g.mushrooms.length, mode === 'classic' ? 4 : 0);
         assert.deepEqual(g.herbs, []);
         assertSafeItems(g);
         g.goldenDelay = 1;
@@ -37,6 +37,26 @@ test('four random mushrooms spawn safely in all layouts and player configuration
         assertSafeItems(g);
       }
     }
+  }
+});
+
+test('switching maps removes mushroom effects and returning to Classic restores mushrooms', () => {
+  for (const mode of ['obstacles', 'maze']) {
+    const g = game();
+    const player = poison(g);
+    g.elapsedMs = player.herbReadyAt;
+    g.updateConsumables();
+    assert.equal(g.herbs.length, 1);
+    g.reset({ mode });
+    for (let i = 0; i < 3; i++) g.updateConsumables();
+    assert.deepEqual(g.mushrooms, []);
+    assert.deepEqual(g.herbs, []);
+    assert.ok(g.players.every((player) => !player.controlsReversed && player.herbReadyAt === null));
+    g.reset();
+    assert.equal(g.mushrooms.length, 0, 'restarting the non-Classic map keeps mushrooms disabled');
+    g.reset({ mode: 'classic' });
+    assert.equal(g.mushrooms.length, 4);
+    assertSafeItems(g);
   }
 });
 
@@ -176,7 +196,7 @@ test('simultaneous catches and cures belong to the individual snake, not the who
 
 test('collisions take precedence over mushrooms, including shared head-on catches', () => {
   for (const playerCount of [1, 2]) {
-    const g = game({ mode: 'obstacles', playerCount });
+    const g = game({ playerCount });
     Object.assign(g.players[0], { snake: [{ x: 4, y: 5 }], direction: 'right' });
     g.mushrooms = [{ x: 5, y: 5 }];
     if (playerCount === 1) g.obstacles = [{ x: 5, y: 5, type: 'wall' }];

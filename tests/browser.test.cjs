@@ -540,8 +540,25 @@ function eatMushroom(g, playerIndex = 0) {
   for (const time of [0, 200, 400, 600, 650]) g.frame(time);
 }
 
-test('mushroom catch updates score, records, warning and cheering; herb cures without scoring', () => {
+test('only Classic shows mushrooms and their HUD/stat rows, including reloads and restarts', () => {
   const g = load();
+  for (const mode of ['obstacles', 'classic', 'maze', 'classic']) {
+    g.element('modeSelect').value = mode;
+    g.element('modeSelect').listeners.change();
+    for (const current of [g, load({ storage: g.storage })]) {
+      const classic = mode === 'classic';
+      assert.equal(current.engine.mushrooms.length, classic ? 4 : 0);
+      for (const id of ['mushroomStatus', 'mushroomRow', 'herbRow']) assert.equal(current.element(id).hidden, !classic);
+    }
+    const round = load({ storage: g.storage });
+    round.click('playButton');
+    round.click('restartButton');
+    assert.equal(round.engine.mushrooms.length, mode === 'classic' ? 4 : 0);
+  }
+});
+
+test('mushroom catch updates score, records, warning and cheering; herb cures without scoring', () => {
+  const g = load({ storage: new Map([['snake-club-mode-v1', 'classic']]) });
   assert.equal(g.engine.mushrooms.length, 4);
   assert.equal(g.element('controlStatus').hidden, true);
   g.click('playButton');
@@ -571,7 +588,7 @@ test('mushroom catch updates score, records, warning and cheering; herb cures wi
 });
 
 test('mushrooms reverse WASD, arrows, touch buttons and swipes consistently', () => {
-  const g = load();
+  const g = load({ storage: new Map([['snake-club-mode-v1', 'classic']]) });
   g.click('playButton');
   eatMushroom(g);
   for (const [key, expected] of [['ArrowUp', 'down'], ['w', 'down'], ['ArrowDown', 'up'], ['s', 'up'], ['ArrowLeft', 'right'], ['a', 'right'], ['ArrowRight', 'left'], ['d', 'left']]) {
@@ -600,7 +617,7 @@ test('mushrooms reverse WASD, arrows, touch buttons and swipes consistently', ()
 });
 
 test('local versus applies reversed controls only to the affected player', () => {
-  const g = load({ playerCount: null });
+  const g = load({ playerCount: null, storage: new Map([['snake-club-mode-v1', 'classic']]) });
   g.click('playButton');
   eatMushroom(g);
   g.key('w');
@@ -615,7 +632,7 @@ test('local versus applies reversed controls only to the affected player', () =>
 });
 
 test('AI mushroom bonuses never replace the human best record', () => {
-  const g = load({ playerCount: null });
+  const g = load({ playerCount: null, storage: new Map([['snake-club-mode-v1', 'classic']]) });
   g.element('playersSelect').value = 'ai';
   g.element('playersSelect').listeners.change();
   g.click('playButton');

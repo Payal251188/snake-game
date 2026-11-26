@@ -47,6 +47,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             assert.equal(await page.locator('#board').getAttribute('data-skin'), skin);
             assert.equal(await page.locator('#board').getAttribute('data-layout'), '2d');
             assert.equal(await page.locator('#viewSelect').count(), 0);
+            assert.equal(await page.locator('#mushroomStatus').isVisible(), false);
             if (selection === 'ai') {
               assert.equal(await page.locator('#opponentScoreLabel').textContent(), 'AI LEFT');
               assert.equal(await page.locator('#preyName').textContent(), '10 items');
@@ -185,6 +186,8 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await page.locator('#playersSelect').selectOption('1');
           await page.locator('#modeSelect').selectOption('classic');
           await page.keyboard.press('Escape');
+          assert.equal(await page.locator('#mushroomStatus').isVisible(), true);
+          assert.match(await page.locator('#mushroomStatus').textContent(), /4/);
           // Test-only placement/observation: no production test hooks or altered input rules.
           await page.evaluate(() => {
             const tick = SnakeGame.prototype.tick;
@@ -243,6 +246,24 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         }
       });
     }
+    await t.test('mushroom status follows Classic/Obstacles/Maze selection', async () => {
+      const context = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+      try {
+        const page = await context.newPage();
+        await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+        for (const mode of ['classic', 'obstacles', 'maze', 'classic']) {
+          await page.locator('#settingsSummary').click();
+          await page.locator('#modeSelect').selectOption(mode);
+          await page.keyboard.press('Escape');
+          assert.equal(await page.locator('#mushroomStatus').isVisible(), mode === 'classic');
+          for (const id of ['mushroomRow', 'herbRow']) {
+            assert.equal(await page.locator(`#${id}`).getAttribute('hidden') === null, mode === 'classic');
+          }
+        }
+        await page.reload();
+        assert.equal(await page.locator('#mushroomStatus').isVisible(), true);
+      } finally { await context.close(); }
+    });
     await t.test('simple settings, separate stats and saved backdrops', async () => {
       const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       try {
