@@ -133,7 +133,7 @@ test('golden food credits five points to its eater, updates records and keeps an
   assert.equal(g.engine.foodType, prey);
   assert.match(g.element('friendMessage').textContent, /Golden catch! \+5 for Jamie/);
   assert.match(g.element('announcer').textContent, /Golden food! \+5 bonus points/);
-  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v2')), { score: 5, name: 'Jamie' });
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:versus')), { score: 5, name: 'Jamie' });
   g.click('restartButton');
   assert.equal(g.element('goldenCount').textContent, '0');
   assert.equal(g.engine.goldenFood, null);
@@ -231,7 +231,7 @@ test('Player 2 catches update only their score, champion, cheer and combined cat
   assert.equal(g.element('ratCount').textContent, '1');
   assert.equal(g.element('totalEaten').textContent, '1');
   assert.match(g.element('friendMessage').textContent, /Nice catch, <b>Jamie<\/b>/);
-  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v2')), { score: 1, name: '<b>Jamie</b>' });
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:versus')), { score: 1, name: '<b>Jamie</b>' });
   assert.equal(load({ storage: g.storage, playerCount: null }).element('opponentInput').value, '<b>Jamie</b>');
 });
 
@@ -570,7 +570,7 @@ test('mushroom catch updates score, records, warning and cheering; herb cures wi
   assert.match(g.element('controlStatus').textContent, /P1 REVERSED.*5s/);
   assert.match(g.element('announcer').textContent, /Controls reversed/);
   assert.match(g.element('friendMessage').textContent, /Mushroom! \+50/);
-  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v2')), { score: 50, name: 'Alex' });
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:classic:solo')), { score: 50, name: 'Alex' });
   g.click('pauseButton');
   const frozen = JSON.stringify(g.engine);
   g.frame(4000);
@@ -684,6 +684,118 @@ test('score and best update on eating, survive restart and reload', () => {
   assert.equal(g.element('score').textContent, '00');
   assert.equal(g.element('best').textContent, '01');
   assert.equal(load({ storage: g.storage }).element('best').textContent, '01');
+});
+
+function selectRecordCategory(g, mode, players) {
+  g.element('modeSelect').value = mode;
+  g.element('modeSelect').listeners.change();
+  g.element('playersSelect').value = players;
+  g.element('playersSelect').listeners.change();
+}
+
+function endRecordRound(g) {
+  g.engine.obstacles = [{ ...g.engine.nextHead(g.engine.players[0]), type: 'wall' }];
+  g.frame(1000);
+  assert.equal(g.state(), 'over');
+}
+
+test('all nine map/play-type records load independently and select the correct champion', () => {
+  const storage = new Map();
+  let score = 10;
+  for (const mode of ['classic', 'obstacles', 'maze']) {
+    for (const type of ['solo', 'versus', 'ai']) {
+      storage.set(`snake-club-record-v3:${mode}:${type}`, JSON.stringify({ score: score++, name: `${mode}-${type}` }));
+    }
+  }
+  const g = load({ storage });
+  score = 10;
+  for (const mode of ['classic', 'obstacles', 'maze']) {
+    for (const [players, type, label] of [['1', 'solo', 'Solo'], ['2', 'versus', 'Local versus'], ['ai', 'ai', 'AI Arena']]) {
+      selectRecordCategory(g, mode, players);
+      assert.equal(g.element('best').textContent, String(score));
+      assert.equal(g.element('bestDetailScore').textContent, String(score++));
+      assert.equal(g.element('bestName').textContent, `${mode}-${type}`);
+      assert.match(g.element('recordType').textContent, new RegExp(label));
+      assert.match(g.element('best').attrs.title, new RegExp(`${mode}-${type}`));
+    }
+  }
+  const before = g.element('best').textContent;
+  g.element('aiCountSelect').value = '2'; g.element('aiCountSelect').listeners.change();
+  g.element('foodSelect').value = '10'; g.element('foodSelect').listeners.change();
+  g.element('skinSelect').value = 'ember'; g.element('skinSelect').listeners.change();
+  g.element('backdropSelect').value = 'meadow'; g.element('backdropSelect').listeners.change();
+  assert.equal(g.element('best').textContent, before, 'cosmetics, food density and AI count do not create categories');
+});
+
+test('new human records persist separately for every map and play type across reloads', () => {
+  const storage = new Map();
+  let index = 0;
+  for (const mode of ['classic', 'obstacles', 'maze']) {
+    for (const [players, type] of [['1', 'solo'], ['2', 'versus'], ['ai', 'ai']]) {
+      const g = load({ storage });
+      selectRecordCategory(g, mode, players);
+      assert.equal(g.element('best').textContent, '00');
+      const score = ++index * 4;
+      const name = `Champion ${index}`;
+      g.element('playerInput').value = name;
+      g.click('playButton');
+      g.engine.players[0].score = score - 1;
+      g.engine.players.filter((player) => player.ai).forEach((player) => { player.score = 1000; });
+      eat(g);
+      assert.equal(g.element('best').textContent, String(score).padStart(2, '0'));
+      assert.deepEqual(JSON.parse(storage.get(`snake-club-record-v3:${mode}:${type}`)), { score, name });
+      g.click('restartButton');
+      assert.equal(g.element('bestName').textContent, name);
+    }
+  }
+  const reloaded = load({ storage });
+  index = 0;
+  for (const mode of ['classic', 'obstacles', 'maze']) {
+    for (const players of ['1', '2', 'ai']) {
+      selectRecordCategory(reloaded, mode, players);
+      const score = ++index * 4;
+      assert.equal(reloaded.element('best').textContent, String(score).padStart(2, '0'));
+      assert.equal(reloaded.element('bestName').textContent, `Champion ${index}`);
+    }
+  }
+});
+
+test('blocked storage still keeps separate per-type session records', () => {
+  const g = load({ blocked: true });
+  selectRecordCategory(g, 'classic', '1');
+  g.click('playButton');
+  g.engine.score = 2;
+  eat(g);
+  assert.equal(g.element('best').textContent, '03');
+  endRecordRound(g);
+  selectRecordCategory(g, 'maze', '1');
+  assert.equal(g.element('best').textContent, '00');
+  g.click('playButton'); eat(g);
+  assert.equal(g.element('best').textContent, '01');
+  endRecordRound(g);
+  selectRecordCategory(g, 'classic', '1');
+  assert.equal(g.element('best').textContent, '03');
+  assert.equal(g.storage.size, 0);
+});
+
+test('a storage write failure preserves cached categories and the new session record', () => {
+  const storage = new Map([
+    ['snake-club-record-v3:classic:solo', JSON.stringify({ score: 12, name: 'Mint' })],
+    ['snake-club-record-v3:maze:solo', JSON.stringify({ score: 7, name: 'Olive' })],
+  ]);
+  const g = load({ storage });
+  selectRecordCategory(g, 'maze', '1');
+  selectRecordCategory(g, 'classic', '1');
+  storage.set = () => { throw Error('Storage full'); };
+  g.click('playButton'); g.engine.score = 12; eat(g);
+  assert.equal(g.element('best').textContent, '13');
+  assert.match(g.element('storageNote').textContent, /session/);
+  endRecordRound(g);
+  selectRecordCategory(g, 'maze', '1');
+  assert.equal(g.element('best').textContent, '07');
+  selectRecordCategory(g, 'classic', '1');
+  assert.equal(g.element('best').textContent, '13');
+  assert.equal(JSON.parse(storage.get('snake-club-record-v3:classic:solo')).score, 12);
 });
 
 test('death shows the replay overlay and replay resets the game', () => {
@@ -1006,16 +1118,33 @@ test('champion name persists, ties keep the first champion, a higher score repla
   next.engine.food = { x: next.engine.snake[0].x + 1, y: next.engine.snake[0].y };
   next.frame(1000);
   assert.equal(next.element('bestName').textContent, 'Jamie');
-  assert.deepEqual(JSON.parse(next.storage.get('snake-club-record-v2')), { score: 2, name: 'Jamie' });
+  assert.deepEqual(JSON.parse(next.storage.get('snake-club-record-v3:obstacles:solo')), { score: 2, name: 'Jamie' });
   assert.equal(load({ storage: next.storage }).element('bestName').textContent, 'Jamie');
 });
 
-test('legacy scores migrate and invalid records are ignored', () => {
-  const legacy = load({ storage: new Map([['snake-club-best-v1', '12']]) });
-  assert.equal(legacy.element('best').textContent, '12');
-  assert.equal(legacy.element('bestName').textContent, 'Unknown player');
-  for (const raw of ['{bad', 'null', '{"score":-2}', '{"score":1.5}', '{"score":"5"}']) {
-    assert.equal(load({ storage: new Map([['snake-club-record-v2', raw]]) }).element('best').textContent, '00');
+test('legacy records remain unclassified rather than contaminating game-type records', () => {
+  for (const [key, raw, score, name] of [
+    ['snake-club-best-v1', '12', 12, 'Unknown player'],
+    ['snake-club-record-v2', JSON.stringify({ score: 50, name: 'Jamie' }), 50, 'Jamie'],
+  ]) {
+    const g = load({ storage: new Map([[key, raw]]) });
+    assert.equal(g.element('best').textContent, '00');
+    assert.equal(g.element('bestName').textContent, 'No record yet');
+    assert.equal(g.element('legacyRecord').hidden, false);
+    assert.match(g.element('legacyRecord').textContent, new RegExp(`${score} by ${name}.*game type unknown`));
+    g.click('playButton'); eat(g);
+    assert.equal(g.element('best').textContent, '01');
+    assert.equal(g.storage.get(key), raw, 'the old record remains intact');
+  }
+});
+
+test('invalid or malformed records are ignored without disabling storage', () => {
+  for (const raw of ['{bad', 'null', '{"score":-2}', '{"score":1.5}', '{"score":"5"}', '{"score":1e30}', '{"score":0}']) {
+    const g = load({ storage: new Map([['snake-club-record-v3:obstacles:solo', raw], ['snake-club-record-v2', raw]]) });
+    assert.equal(g.element('best').textContent, '00');
+    assert.equal(g.element('legacyRecord').hidden, true);
+    g.click('playButton'); eat(g);
+    assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:solo')), { score: 1, name: 'Alex' });
   }
 });
 

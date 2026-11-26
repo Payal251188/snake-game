@@ -13,7 +13,7 @@
   <script src="snake-items-renderer.js?v=simple1" defer></script>
   <script src="snake-motion.js?v=simple1" defer></script>
   <script src="snake-board.js?v=simple1" defer></script>
-  <script src="game.js?v=classic-mushrooms1" defer></script>
+  <script src="game.js?v=per-type-records1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -76,7 +76,8 @@
               </div>
               <p class="settings-help" id="levelHint">Next level: 10 rats, 10 rabbits, and 10 frogs.</p>
               <details class="more-options"><summary>Round details</summary>
-                <p class="settings-help">Champion: <strong id="bestName">No record yet</strong> · Food: <strong id="preyName">Rat</strong></p>
+                <p class="settings-help">Best for <strong id="recordType">Obstacles · Local versus</strong>: <strong id="bestDetailScore">00</strong> · <strong id="bestName">No record yet</strong><br>Food: <strong id="preyName">Rat</strong></p>
+                <p class="settings-help" id="legacyRecord" hidden></p>
                 <p class="ai-standings" id="aiStandings" hidden></p>
                 <table>
                   <caption>Items collected by all snakes this round</caption>
@@ -93,7 +94,7 @@
                   <tfoot><tr><th scope="row">Total</th><td id="totalEaten">0</td><td>Per round</td></tr></tfoot>
                 </table>
               </details>
-              <p class="settings-help" id="storageNote">Best score and preferences are saved in this browser.</p>
+              <p class="settings-help" id="storageNote">Best scores are saved separately for each map and play type in this browser.</p>
             </section>
           </div>
         </details>

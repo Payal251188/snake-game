@@ -246,6 +246,70 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         }
       });
     }
+    for (const [width, height] of [[1280, 800], [375, 667]]) {
+      await t.test(`per-map/play-type best scores persist independently · ${width}×${height}`, async () => {
+        const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
+        try {
+          const page = await context.newPage();
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          await page.addInitScript(() => { Math.random = () => 0; });
+          await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+          await page.evaluate(() => {
+            let score = 10;
+            for (const mode of ['classic', 'obstacles', 'maze']) {
+              for (const type of ['solo', 'versus', 'ai']) localStorage.setItem(`snake-club-record-v3:${mode}:${type}`, JSON.stringify({ score: score++, name: `${mode}-${type}` }));
+            }
+          });
+          await page.reload();
+          let score = 10;
+          for (const [mode, title] of [['classic', 'Classic'], ['obstacles', 'Obstacles'], ['maze', 'Maze']]) {
+            for (const [players, type, label] of [['1', 'solo', 'Solo'], ['2', 'versus', 'Local versus'], ['ai', 'ai', 'AI Arena']]) {
+              await page.locator('#settingsSummary').click();
+              await page.locator('#modeSelect').selectOption(mode);
+              await page.locator('#playersSelect').selectOption(players);
+              await page.keyboard.press('Escape');
+              assert.equal(await page.locator('#best').textContent(), String(score++));
+              assert.equal(await page.locator('#recordType').textContent(), `${title} · ${label}`);
+              assert.equal(await page.locator('#bestName').textContent(), `${mode}-${type}`);
+            }
+          }
+          await page.locator('#settingsSummary').click();
+          await page.locator('#modeSelect').selectOption('classic');
+          await page.locator('#playersSelect').selectOption('1');
+          await page.keyboard.press('Escape');
+          await page.evaluate(() => {
+            const tick = SnakeGame.prototype.tick;
+            let first = true;
+            SnakeGame.prototype.tick = function () {
+              if (first) {
+                this.players[0].score = 10;
+                this.food = this.nextHead(this.players[0]);
+                this.extraFoods = [];
+                this.mushrooms = [];
+                this.mushroomCount = 0;
+                first = false;
+              }
+              return tick.call(this);
+            };
+          });
+          await page.locator('#playerInput').fill('Alex');
+          await page.locator('#playButton').click();
+          await page.waitForFunction(() => document.querySelector('#best').textContent === '11');
+          await page.locator('#pauseButton').click();
+          assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('snake-club-record-v3:classic:solo')).name), 'Alex');
+          assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('snake-club-record-v3:maze:solo')).score), 16);
+          await page.reload();
+          assert.equal(await page.locator('#best').textContent(), '11');
+          assert.equal(await page.locator('#bestName').textContent(), 'Alex');
+          await page.locator('#statsSummary').click();
+          await page.getByText('Round details', { exact: true }).click();
+          assert.equal(await page.locator('#recordType').isVisible(), true);
+          assert.equal(await page.locator('#bestDetailScore').textContent(), '11');
+          assert.deepEqual(errors, []);
+        } finally { await context.close(); }
+      });
+    }
     await t.test('mushroom status follows Classic/Obstacles/Maze selection', async () => {
       const context = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
       try {

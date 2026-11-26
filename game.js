@@ -4,7 +4,7 @@
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
   const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true });
-  const storageKey = 'snake-club-record-v2';
+  const storageKey = 'snake-club-record-v3';
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
   const skinKey = 'snake-club-skin-v1';
@@ -35,6 +35,10 @@
   let state = 'ready';
   let best = 0;
   let bestName = '';
+  const records = new Map();
+  const recordType = () => engine.aiCount ? 'ai' : engine.playerCount === 2 ? 'versus' : 'solo';
+  const recordKey = () => `${engine.mode}:${recordType()}`;
+  const recordLabel = () => `${modes[engine.mode].name} · ${{ solo: 'Solo', versus: 'Local versus', ai: 'AI Arena' }[recordType()]}`;
   let playerName = '';
   let opponentName = 'Player 2';
   const nameFor = (index) => index === 0 ? playerName || 'Player 1' : engine.players[index]?.ai ? `AI ${index}` : opponentName;
@@ -83,22 +87,40 @@
       : golden ? `Golden catch! +5 for ${names}! ⭐` : `Nice catch, ${names}! 👏`;
   }
 
+  function parseRecord(raw) {
+    let record;
+    try { record = JSON.parse(raw); } catch { return null; }
+    return record && Number.isSafeInteger(record.score) && record.score > 0
+      ? { score: record.score, name: cleanName(record.name) || 'Unknown player' } : null;
+  }
+
+  function selectBestRecord() {
+    const key = recordKey();
+    if (!records.has(key)) {
+      let saved = null;
+      if (canSave) {
+        try { saved = parseRecord(localStorage.getItem(`${storageKey}:${key}`)); }
+        catch { storageUnavailable(); }
+      }
+      records.set(key, saved || { score: 0, name: '' });
+    }
+    const record = records.get(key);
+    best = record.score;
+    bestName = record.name;
+  }
+
   function storageUnavailable() {
     canSave = false;
-    $('storageNote').textContent = 'Best kept for this session. Browser storage is unavailable.';
+    $('storageNote').textContent = 'Best scores kept per game type for this session. Browser storage is unavailable.';
   }
+  $('legacyRecord').hidden = true;
   try {
-    const raw = localStorage.getItem(storageKey);
-    let record;
-    try { record = raw ? JSON.parse(raw) : null; } catch { record = null; }
-    if (record && Number.isSafeInteger(record.score) && record.score > 0) {
-      best = record.score;
-      bestName = cleanName(record.name) || 'Unknown player';
-    } else {
-      // Keep scores saved by the previous version, which did not store names.
-      const legacy = Number(localStorage.getItem('snake-club-best-v1'));
-      best = Number.isSafeInteger(legacy) && legacy > 0 ? legacy : 0;
-      bestName = best ? 'Unknown player' : '';
+    const legacy = Number(localStorage.getItem('snake-club-best-v1'));
+    const record = parseRecord(localStorage.getItem('snake-club-record-v2'))
+      || (Number.isSafeInteger(legacy) && legacy > 0 ? { score: legacy, name: 'Unknown player' } : null);
+    if (record) {
+      $('legacyRecord').hidden = false;
+      $('legacyRecord').textContent = `Previous overall best: ${record.score} by ${record.name} (game type unknown).`;
     }
     playerName = cleanName(localStorage.getItem(playerKey));
     opponentName = cleanName(localStorage.getItem(opponentKey)) || 'Player 2';
@@ -115,7 +137,6 @@
     if (Object.hasOwn(avatars, savedAvatar)) playerAvatar = savedAvatar;
     const savedMode = localStorage.getItem(modeKey);
     if (Object.hasOwn(modes, savedMode)) engine.reset({ mode: savedMode });
-    localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName }));
   } catch { storageUnavailable(); }
 
   $('playerInput').value = playerName;
@@ -312,6 +333,10 @@
     $('powerupStatus').textContent = powers.join(' · ');
   }
   function updateScores() {
+    selectBestRecord();
+    $('recordType').textContent = recordLabel();
+    $('best').setAttribute('title', `${recordLabel()} best${bestName ? ` by ${bestName}` : ''}`);
+    $('best').setAttribute('aria-label', `${recordLabel()} best score: ${best}`);
     $('score').textContent = format(engine.score);
     const livingBots = engine.players.filter((player) => player.ai && player.alive).length;
     $('opponentScore').textContent = format(engine.aiCount ? livingBots : engine.players[1]?.score || 0);
@@ -319,6 +344,7 @@
     $('aiStandings').textContent = engine.players.filter((player) => player.ai)
       .map((player, index) => `AI ${index + 1}: ${player.score} points${player.alive ? '' : ' · eliminated'}${player.controlsReversed ? ' · reversed' : ''}`).join(' | ');
     $('best').textContent = format(best);
+    $('bestDetailScore').textContent = format(best);
     $('playerName').textContent = playerName || '—';
     $('playerAvatar').hidden = !playerName;
     $('playerAvatar').dataset.avatar = playerAvatar;
@@ -584,8 +610,9 @@
         if (score > best) {
           best = score;
           bestName = nameFor(playerIndex);
+          records.set(recordKey(), { score: best, name: bestName });
           if (canSave) {
-            try { localStorage.setItem(storageKey, JSON.stringify({ score: best, name: bestName })); }
+            try { localStorage.setItem(`${storageKey}:${recordKey()}`, JSON.stringify({ score: best, name: bestName })); }
             catch { storageUnavailable(); }
           }
         }
