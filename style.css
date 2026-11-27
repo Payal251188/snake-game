@@ -212,6 +212,12 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
 .home-settings-button:hover { text-decoration:underline; }
 .countdown { position:absolute; inset:0; z-index:3; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:#10222bd9; color:var(--mint); text-align:center; }
 .countdown[hidden] { display:none; }
+.event-notice { position:absolute; z-index:1; top:10px; left:50%; transform:translateX(-50%); max-width:92%; padding:8px 12px; border:1px solid #b8d69c; border-radius:8px; background:#203b30f5; color:#ecf8d8; font-size:11px; line-height:1.5; text-align:center; pointer-events:none; }
+.event-notice[hidden] { display:none; }
+.event-notice[data-kind='shield'] { border-color:#aeedff; background:#153c50f5; color:#e7faff; }
+.event-notice[data-kind='mushroom'] { border-color:#ffc49c; background:#5e302af5; }
+.touch-controls[data-reversed='true'] button { border-color:#b76349; background:#ffe0c8; color:#70351d; }
+.touch-controls[data-reversed='true'] > span { color:#8b321d; font-weight:700; }
 .countdown strong { font:800 clamp(60px,12vw,112px)/1 ui-monospace,monospace; letter-spacing:-5px; }
 .countdown-caption { color:#c4d9cd; font-size:10px; letter-spacing:1.5px; }
 @media (max-width:599px) {
@@ -249,5 +255,41 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
   .home-mascots img:nth-child(2) { width:36px; height:36px; }
   .home-intro h1 { font-size:22px; }
   .game-shell[data-state='ready'] .player-entry { margin-bottom:10px; }
+}
+.home-goal { max-width:280px; color:#c0d6b1; font-size:11px; line-height:1.5; }
+.overlay-actions { display:flex; align-items:center; justify-content:center; gap:8px; flex-shrink:0; }
+.round-results { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; min-height:0; overflow-y:auto; overscroll-behavior:contain; text-align:left; }
+.round-results:focus-visible { outline:2px solid var(--mint); outline-offset:2px; }
+.round-results[data-players='2'] { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.round-results[hidden],.result-card[hidden],.result-home[hidden],.combo-status[hidden] { display:none; }
+.result-card { min-width:0; padding:10px; border:1px solid #456555; border-radius:8px; background:#1c352e; color:#d8edd9; }
+.result-card > strong { display:block; font-size:12px; overflow-wrap:anywhere; }
+.result-numbers { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:10px 0; }
+.result-numbers dt { color:#abc4b4; font-size:9px; }
+.result-numbers dd { margin:2px 0 0; font:600 13px/1.5 ui-monospace,monospace; color:#ecfbdc; overflow-wrap:anywhere; }
+.result-numbers div:last-child dd { font-size:10px; }
+.round-results p { margin:5px 0 0; font-size:10px; line-height:1.5; }
+.round-results .result-medals { color:#f5df9a; }
+.round-results .result-goal { color:#c0d9ba; }
+.round-results .result-record { grid-column:1 / -1; color:#acc6b8; padding:2px; }
+.result-home { min-height:44px; padding:10px 12px; border:1px solid #719d83; border-radius:6px; color:#d3e9d6; background:transparent; font-size:10px; cursor:pointer; }
+.result-home:hover { background:#294a39; }
+.game-shell:is([data-state='over'],[data-state='won']) .overlay-content { display:flex; flex-direction:column; width:min(100%,460px); overflow:hidden; gap:10px; }
+.game-shell:is([data-state='over'],[data-state='won']) .overlay-tag { flex-shrink:0; }
+.game-shell:is([data-state='over'],[data-state='won']) .overlay h2 { flex-shrink:0; margin:0; font-size:24px; }
+.game-shell:is([data-state='over'],[data-state='won']) #overlayText { flex-shrink:0; max-height:48px; overflow-y:auto; margin:0; font-size:11px; }
+.game-shell:is([data-state='over'],[data-state='won']) .play-button { flex:1; gap:16px; margin:0; }
+.game-shell:is([data-state='over'],[data-state='won']) .space-hint { flex-shrink:0; margin:0; }
+.combo-status { padding:2px 5px; border:1px solid #a99c67; border-radius:4px; color:#f0e8a9; background:#344028; }
+#countdownGoal { max-width:85%; line-height:1.6; font-size:9px; letter-spacing:.6px; }
+@media (max-width:599px) and (max-height:700px) { .home-goal { display:none; } }
+@media (max-height:700px) {
+  .game-shell:is([data-state='over'],[data-state='won']) .overlay { position:fixed; inset:52px 8px 8px; padding:10px; }
+}
+@media (max-height:500px) {
+  .game-shell:is([data-state='over'],[data-state='won']) .overlay-content { padding:10px; gap:6px; }
+  .game-shell:is([data-state='over'],[data-state='won']) .overlay h2 { font-size:20px; }
+  .game-shell:is([data-state='over'],[data-state='won']) #overlayText { max-height:28px; font-size:10px; }
+  .game-shell:is([data-state='over'],[data-state='won']) .space-hint { display:none; }
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }

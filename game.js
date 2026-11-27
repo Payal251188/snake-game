@@ -3,7 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true });
+  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true, combosEnabled: true });
   const storageKey = 'snake-club-record-v3';
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
@@ -48,6 +48,10 @@
     ? 'Player 1: W A S D. Player 2: arrow keys. Avoid both snakes. Last snake standing wins; simultaneous crashes draw.'
     : 'Use arrow keys or W A S D to steer.';
   let startingBest = 0;
+  let roundNumber = 0;
+  let roundGoal = SnakeRewards.goalFor(1);
+  let roundRecordPlayer = null;
+  const completedGoals = new Set();
   let canSave = true;
   let lastTime = null;
   let elapsed = 0;
@@ -69,12 +73,21 @@
   let gesture = null;
   let cheerRemaining = 0;
   let cheerFrame = null;
+  let noticeRemaining = 0;
+  const shieldFlashes = new Map();
 
   function resetCheer() {
     cheerRemaining = 0;
     cheerFrame = null;
     $('snakeFriends').dataset.cheering = 'false';
     $('friendMessage').textContent = 'Your snake friends are rooting for you!';
+  }
+
+  function showNotice(message, kind = 'reward') {
+    noticeRemaining = 2200;
+    $('eventNotice').textContent = message;
+    $('eventNotice').dataset.kind = kind;
+    $('eventNotice').hidden = false;
   }
 
   function cheer() {
@@ -84,8 +97,9 @@
     const golden = engine.lastCatches.some(({ type }) => type === 'golden');
     const mushroom = engine.lastCatches.some(({ type }) => type === 'mushroom');
     const herb = engine.lastCatches.some(({ type }) => type === 'herb');
+    const combo = engine.lastEvents.find((event) => event.type === 'combo-bonus');
     const powerup = engine.lastCatches.find(({ type }) => type === 'shield' || type === 'slow');
-    $('friendMessage').textContent = powerup ? `${powerup.type === 'shield' ? 'Shield ready! 🛡' : 'Slow and steady! ⏱'} ${names}` : mushroom ? `Mushroom! +50 for ${names}! 🍄`
+    $('friendMessage').textContent = combo ? `${combo.streak}-catch chain! +1 bonus for ${nameFor(combo.playerIndex)}! 🎵` : powerup ? `${powerup.type === 'shield' ? 'Shield ready! 🛡' : 'Slow and steady! ⏱'} ${names}` : mushroom ? `Mushroom! +50 for ${names}! 🍄`
       : herb ? `Healing herb! Controls restored for ${names}! 🌿`
       : golden ? `Golden catch! +5 for ${names}! ⭐` : `Nice catch, ${names}! 👏`;
   }
@@ -201,6 +215,9 @@
   function resetPresentation() {
     previousPlayers = SnakeMotion.capture(engine.players);
     visualTime = 0;
+    noticeRemaining = 0;
+    shieldFlashes.clear();
+    $('eventNotice').hidden = true;
     sceneDirty = true;
   }
   $('backdropSelect').addEventListener('change', () => {
@@ -227,6 +244,8 @@
     $('aiCountSelect').value = String(preferredAICount);
     $('foodSelect').value = String(engine.foodCount);
     $('aiStandings').hidden = !engine.aiCount;
+    $('aiPersonalityHint').hidden = !engine.aiCount;
+    $('aiPersonalityHint').textContent = engine.players.flatMap((player, index) => player.ai ? [`AI ${index}: ${SnakeAI.personality(engine, index).name}`] : []).join(' · ');
     const dual = engine.playerCount === 2;
     $('opponentEntry').hidden = !dual;
     $('opponentInput').required = dual;
@@ -241,6 +260,8 @@
     $('controlsHint').textContent = steeringHint();
     $('modeHint').textContent = modes[engine.mode].hint;
     $('homeSummary').textContent = recordLabel();
+    $('homeGoal').textContent = `Optional goal: ${roundGoal.description}`;
+    $('itemGuide').textContent = `Animals +1 · × blocks are hazards · 🛡 one safe collision · ⏱ slows the board${engine.wraps ? ' · 🍄 +50 reverses controls · 🌿 cures them' : ''}`;
     if (state === 'ready') {
       $('playLabel').textContent = 'LET’S PLAY';
       $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
@@ -332,10 +353,24 @@
     const wait = affected.length ? Math.ceil(Math.min(...affected.map((player) => engine.herbWaitMs(player))) / 1000) : 0;
     const remedy = engine.herbs.length ? '🌿 herb ready' : wait > 0 ? `🌿 in ${wait}s` : '🌿 awaiting space';
     $('controlStatus').textContent = affected.length ? `${labels.join('/')} REVERSED · ${remedy}` : '';
+    $('playerOneControls').dataset.reversed = String(Boolean(engine.players[0].controlsReversed));
+    $('playerTwoControls').dataset.reversed = String(Boolean(engine.players[1]?.controlsReversed));
+    $('playerOneControlsLabel').textContent = engine.players[0].controlsReversed ? 'P1 · REVERSED' : engine.playerCount === 2 ? 'P1 · WASD' : 'STEER';
+    $('playerTwoControlsLabel').textContent = engine.players[1]?.controlsReversed ? 'P2 · REVERSED' : 'P2 · ARROWS';
+    const opposite = { up: 'down', down: 'up', left: 'right', right: 'left' };
+    document.querySelectorAll('[data-direction]').forEach((button) => {
+      const index = Number(button.dataset.player || 0);
+      const reversed = engine.players[index]?.controlsReversed;
+      const input = button.dataset.direction;
+      button.setAttribute('aria-label', `Player ${index + 1}: ${input}${reversed ? ` input moves ${opposite[input]} (reversed)` : ''}`);
+    });
     const powers = engine.players.flatMap((player, index) => !player.ai && engine.shieldRemainingMs(player) ? [`🛡 P${index + 1} ${Math.ceil(engine.shieldRemainingMs(player) / 1000)}s`] : []);
     if (engine.slowRemainingMs) powers.push(`⏱ SLOW ${Math.ceil(engine.slowRemainingMs / 1000)}s`);
     $('powerupStatus').hidden = powers.length === 0;
     $('powerupStatus').textContent = powers.join(' · ');
+    const chains = engine.players.slice(0, engine.playerCount).flatMap((player, index) => player.comboCount >= 2 && engine.comboRemainingMs(player) > 0 ? [`P${index + 1} CHAIN ${player.comboCount}`] : []);
+    $('comboStatus').hidden = chains.length === 0;
+    $('comboStatus').textContent = chains.join(' · ');
   }
   function updateScores() {
     selectBestRecord();
@@ -347,7 +382,7 @@
     $('opponentScore').textContent = format(engine.aiCount ? livingBots : engine.players[1]?.score || 0);
     $('opponentName').textContent = engine.aiCount ? `${livingBots}/${engine.aiCount} alive` : opponentName;
     $('aiStandings').textContent = engine.players.filter((player) => player.ai)
-      .map((player, index) => `AI ${index + 1}: ${player.score} points${player.alive ? '' : ' · eliminated'}${player.controlsReversed ? ' · reversed' : ''}`).join(' | ');
+      .map((player, index) => `AI ${index + 1}: ${player.score} points${player.alive ? '' : ' · eliminated'}${player.controlsReversed ? ' · reversed' : ''} · ${SnakeAI.personality(engine, index + 1).name}`).join(' | ');
     $('best').textContent = format(best);
     $('bestDetailScore').textContent = format(best);
     $('playerName').textContent = playerName || '—';
@@ -381,6 +416,7 @@
       $(`${animal}Progress`).value = count;
       $(`${animal}ProgressText`).textContent = `${count}/${target}`;
     }
+    $('roundGoal').textContent = `Optional goal — ${roundGoal.description} ${engine.players.slice(0, engine.playerCount).map((player, index) => { const progress = SnakeRewards.goalProgress(player, roundGoal); return `P${index + 1}: ${progress.value}/${progress.target}${progress.complete ? ' ✓' : ''}`; }).join(' · ')}`;
     $('levelHint').textContent = `Next level: ${target} of each animal. Human catches only; AI catches never increase the level.`;
   }
 
@@ -401,7 +437,9 @@
     $('overlay').hidden = state === 'playing' || state === 'countdown';
     $('homeIntro').hidden = state !== 'ready';
     $('countdown').hidden = state !== 'countdown';
-    $('playerEntry').hidden = active;
+    $('playerEntry').hidden = state !== 'ready';
+    $('roundResults').hidden = !['over', 'won'].includes(state);
+    $('resultHome').hidden = !['over', 'won'].includes(state);
     previewSound = false;
     syncMusic();
     for (const id of ['modeSelect', 'playersSelect', 'aiCountSelect', 'foodSelect']) $(id).disabled = active;
@@ -419,7 +457,7 @@
     $('overlayText').textContent = text;
     $('playLabel').textContent = button;
     $('spaceHint').textContent = hint;
-    (state === 'paused' ? $('playButton') : $('playerInput')).focus({ preventScroll: true });
+    (['paused', 'over', 'won'].includes(state) ? $('playButton') : $('playerInput')).focus({ preventScroll: true });
   }
 
   // Effects are optional; failure here must never disable the music track.
@@ -573,6 +611,9 @@
     }
     void unlockAudio();
     engine.reset();
+    roundGoal = SnakeRewards.goalFor(++roundNumber);
+    roundRecordPlayer = null;
+    completedGoals.clear();
     resetPresentation();
     updateMode();
     resetCheer();
@@ -582,6 +623,7 @@
     countdownElapsed = 0;
     pausedCountdown = false;
     $('countdownNumber').textContent = '1';
+    $('countdownGoal').textContent = `Optional goal: ${roundGoal.description}`;
     setState('countdown');
     $('footerMessage').textContent = modes[engine.mode].hint;
     canvas.focus({ preventScroll: true });
@@ -608,6 +650,9 @@
     countdownElapsed = 0;
     pausedCountdown = false;
     elapsed = 0;
+    roundGoal = SnakeRewards.goalFor(roundNumber + 1);
+    roundRecordPlayer = null;
+    completedGoals.clear();
     engine.reset();
     resetPresentation();
     resetCheer();
@@ -630,6 +675,7 @@
     const bonusNotice = !hadGoldenFood && engine.goldenFood ? 'Golden food appeared! Catch the gold star for 5 bonus points.'
       : hadGoldenFood && !engine.goldenFood && !caughtGolden && result !== 'lost' ? 'Golden food expired. Watch for the next one!' : '';
     const herbNotice = !hadHerb && engine.herbs.length ? 'Healing herbs appeared! Collect a green herb to restore normal controls.' : '';
+    const comboNotice = engine.lastEvents.filter((event) => event.type === 'combo-bonus').map((event) => `${nameFor(event.playerIndex)}: ${event.streak}-animal chain! +${event.bonus} combo bonus.`).join(' ');
     const shieldNotice = engine.lastEvents.filter((event) => event.type === 'shield-block').map((event) => `${nameFor(event.playerIndex)}: shield absorbed a hit! Turn to safety.`).join(' ');
     if (engine.lastCatches.length) {
       for (const { playerIndex } of engine.lastCatches) {
@@ -638,6 +684,7 @@
         if (score > best) {
           best = score;
           bestName = nameFor(playerIndex);
+          roundRecordPlayer = playerIndex;
           records.set(recordKey(), { score: best, name: bestName });
           if (canSave) {
             try { localStorage.setItem(`${storageKey}:${recordKey()}`, JSON.stringify({ score: best, name: bestName })); }
@@ -660,15 +707,34 @@
         return `${nameFor(playerIndex)} ${type === 'golden' ? 'caught golden food' : 'caught another bite'}! +${points}`;
       });
       $('footerMessage').textContent = `${levelUp ? `Level ${engine.level}! ` : ''}${catches.join(' · ')}`;
-      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)}: ${type === 'golden' ? `Golden food! +${points} bonus points. ` : ''}Score ${engine.players[playerIndex].score}.`).join(' ')} Next prey: ${engine.foodType || 'none'}. ${catches.filter((_, index) => ['mushroom', 'herb', 'shield', 'slow'].includes(engine.lastCatches[index].type)).join(' ')} ${bonusNotice} ${herbNotice} ${shieldNotice}`);
+      announce(`${levelUp ? `Level ${engine.level}! Speed increased. ` : ''}${engine.lastCatches.map(({ playerIndex, type, points }) => `${nameFor(playerIndex)}: ${type === 'golden' ? `Golden food! +${points} bonus points. ` : ''}Score ${engine.players[playerIndex].score}.`).join(' ')} Next prey: ${engine.foodType || 'none'}. ${catches.filter((_, index) => ['mushroom', 'herb', 'shield', 'slow'].includes(engine.lastCatches[index].type)).join(' ')} ${bonusNotice} ${herbNotice} ${shieldNotice} ${comboNotice}`);
     } else {
       updateScores();
       if (bonusNotice || herbNotice || shieldNotice) announce([bonusNotice, herbNotice, shieldNotice].filter(Boolean).join(' '));
       if (shieldNotice) $('footerMessage').textContent = shieldNotice;
     }
+    const newGoals = engine.players.slice(0, engine.playerCount).flatMap((player, index) => {
+      if (completedGoals.has(index) || !SnakeRewards.goalProgress(player, roundGoal).complete) return [];
+      completedGoals.add(index);
+      return [nameFor(index)];
+    });
+    const goalNotice = newGoals.length ? `${newGoals.join(' & ')}: goal complete — ${roundGoal.title}!` : '';
+    if (goalNotice) announce(`${$('announcer').textContent} ${goalNotice}`);
+    const shieldSaves = engine.lastEvents.filter((event) => event.type === 'shield-block');
+    for (const event of shieldSaves) shieldFlashes.set(event.playerIndex, 1000);
+    const humanShieldSaves = shieldSaves.filter((event) => !engine.players[event.playerIndex].ai);
+    if (humanShieldSaves.length) {
+      showNotice(`${humanShieldSaves.map((event) => nameFor(event.playerIndex)).join(' & ')}: shield saved you — turn now!`, 'shield');
+    } else {
+      const pickup = engine.lastCatches.find((caught) => !engine.players[caught.playerIndex].ai && ['mushroom', 'herb', 'shield', 'slow'].includes(caught.type));
+      if (!pickup && comboNotice) showNotice([comboNotice, goalNotice].filter(Boolean).join(' '), 'combo');
+      else if (!pickup && goalNotice) showNotice(goalNotice);
+      if (pickup) showNotice({ mushroom: 'Controls REVERSED: left ↔ right, up ↔ down. Find a green herb!', herb: 'Controls restored. You’re back on track!', shield: 'Shield ready: one safe collision, up to 8 seconds.', slow: 'Slow motion: breathing room for 6 seconds.' }[pickup.type], pickup.type);
+    }
     if (result === 'lost' || result === 'won') {
       const won = result === 'won';
       setState(won ? 'won' : 'over');
+      renderRoundResults();
       if (won) tone(880, 0.25);
       else playGameOver();
       const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a stone block', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
@@ -698,6 +764,25 @@
         announce(`${won ? 'You won!' : `Game over. ${lossReason}`} ${playerName} scored ${engine.score}. Best score ${best} by ${bestName || 'no one yet'}.`);
       }
     }
+  }
+
+  function renderRoundResults() {
+    $('roundResults').dataset.players = String(engine.playerCount);
+    for (let index = 0; index < 2; index++) {
+      const player = index < engine.playerCount ? engine.players[index] : null;
+      $(`result${index}Card`).hidden = !player;
+      if (!player) continue;
+      const result = SnakeRewards.summary(player, { goal: roundGoal, newRecord: roundRecordPlayer === index && player.score > startingBest });
+      $(`result${index}Name`).textContent = nameFor(index);
+      $(`result${index}Score`).textContent = String(result.score);
+      $(`result${index}Time`).textContent = result.time;
+      $(`result${index}Animals`).textContent = String(result.animals);
+      $(`result${index}Chain`).textContent = `${result.bestCombo} · +${result.comboBonus} bonus`;
+      $(`result${index}Prey`).textContent = `Rat ${result.eaten.rat} · Rabbit ${result.eaten.rabbit} · Frog ${result.eaten.frog}`;
+      $(`result${index}Medals`).textContent = result.medals.join(' · ') || 'A fresh start is one bite away.';
+      $(`result${index}Goal`).textContent = result.goal.complete ? `✓ Goal complete: ${result.goal.title}` : `Optional: ${result.goal.title} — ${result.goal.value}/${result.goal.target}`;
+    }
+    $('resultRecord').textContent = `${recordLabel()} · Best ${best}${bestName ? ` by ${bestName}` : ''}`;
   }
 
   function ellipse(x, y, rx, ry, color, rotation = 0) {
@@ -800,8 +885,8 @@
       SnakeRenderer.draw(ctx, { left, top, cell, time: visualTime, player, skin, animate: state === 'playing' && !reducedMotion });
       const x = left + (player.snake[0].x + 0.5) * cell;
       const y = top + (player.snake[0].y + 0.5) * cell;
-      if (engine.shieldRemainingMs(player)) {
-        ctx.save(); ctx.strokeStyle = '#a2e6ff'; ctx.lineWidth = Math.max(1, cell * 0.045);
+      if (engine.shieldRemainingMs(player) || shieldFlashes.has(index)) {
+        ctx.save(); ctx.strokeStyle = shieldFlashes.has(index) ? '#ffffff' : '#a2e6ff'; ctx.lineWidth = Math.max(1, cell * (shieldFlashes.has(index) ? 0.09 : 0.045));
         ctx.beginPath(); ctx.ellipse(x, y, cell * 0.56, cell * 0.43, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
       }
       if (engine.players.length > 1 || player.controlsReversed) {
@@ -869,14 +954,28 @@
   $('pauseButton').addEventListener('click', pause);
   $('restartButton').addEventListener('click', startGame);
   $('homeButton').addEventListener('click', goHome);
+  $('resultHome').addEventListener('click', goHome);
   $('homeSettings').addEventListener('click', () => {
     $('gameSettings').open = true;
     $('playersSelect').focus({ preventScroll: true });
   });
   document.querySelectorAll('[data-direction]').forEach((button) => {
-    button.addEventListener('click', () => {
+    let pointerHandled = false;
+    const steer = () => {
       const playerIndex = Number(button.dataset.player || 0);
       if (['playing', 'countdown'].includes(state) && playerIndex < engine.playerCount) engine.steer(button.dataset.direction, playerIndex);
+    };
+    button.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      pointerHandled = true;
+      event.preventDefault();
+      steer();
+    });
+    button.addEventListener('pointercancel', () => { pointerHandled = false; });
+    button.addEventListener('click', (event) => {
+      if (pointerHandled && event?.detail !== 0) { pointerHandled = false; return; }
+      pointerHandled = false;
+      steer();
     });
   });
   canvas.addEventListener('pointerdown', (event) => {
@@ -888,7 +987,8 @@
     if (!gesture || gesture.id !== event.pointerId || !['playing', 'countdown'].includes(state)) return;
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+    const threshold = Math.max(14, Math.min(22, Math.min(width, height) * 0.05));
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < threshold || Math.max(Math.abs(dx), Math.abs(dy)) < Math.min(Math.abs(dx), Math.abs(dy)) * 1.25) return;
     engine.steer(Math.abs(dx) > Math.abs(dy) ? dx > 0 ? 'right' : 'left' : dy > 0 ? 'down' : 'up');
     gesture = { x: event.clientX, y: event.clientY, id: event.pointerId };
   });
@@ -936,6 +1036,12 @@
     lastVisualFrame = time;
     if (state === 'playing') {
       if (!reducedMotion) visualTime += delta;
+      noticeRemaining = Math.max(0, noticeRemaining - delta);
+      if (!noticeRemaining) $('eventNotice').hidden = true;
+      for (const [index, remaining] of shieldFlashes) {
+        if (remaining <= delta) shieldFlashes.delete(index);
+        else shieldFlashes.set(index, remaining - delta);
+      }
     }
     if (state === 'countdown') {
       if (countdownLastTime !== null) countdownElapsed += Math.min(200, Math.max(0, time - countdownLastTime));
@@ -946,7 +1052,7 @@
         pausedCountdown = false;
         setState('playing');
         canvas.focus({ preventScroll: true });
-        announce(`GO! ${playerName}, ${modes[engine.mode].name} mode with the ${avatars[playerAvatar]} avatar. ${steeringHint()}`);
+        announce(`GO! ${playerName}, ${modes[engine.mode].name} mode with the ${avatars[playerAvatar]} avatar. ${steeringHint()} Optional goal: ${roundGoal.description}`);
       }
     }
     if (cheerRemaining > 0 && cheerFrame !== null) {

@@ -5,6 +5,15 @@
     up: { x: 0, y: -1 }, down: { x: 0, y: 1 },
     left: { x: -1, y: 0 }, right: { x: 1, y: 0 },
   };
+  const profiles = Object.freeze({
+    balanced: Object.freeze({ name: 'Balanced', foodWeight: 10, powerBonus: 0, riskPenalty: 1000, spaceWeight: 0.1, roomMargin: 2 }),
+    hungry: Object.freeze({ name: 'Hungry', foodWeight: 14, powerBonus: 0, riskPenalty: 1000, spaceWeight: 0.05, roomMargin: 2 }),
+    cautious: Object.freeze({ name: 'Cautious', foodWeight: 7, powerBonus: 0, riskPenalty: 2200, spaceWeight: 0.8, roomMargin: 8 }),
+    collector: Object.freeze({ name: 'Collector', foodWeight: 9, powerBonus: 60, riskPenalty: 1400, spaceWeight: 0.15, roomMargin: 4 }),
+  });
+  function personality(game, index) {
+    return game.players[index]?.ai ? profiles[['balanced', 'hungry', 'cautious', 'collector'][index] || 'balanced'] : profiles.balanced;
+  }
   const key = ({ x, y }) => `${x},${y}`;
   const legalDirections = (player) => Object.keys(directions).filter((direction) => {
     const current = directions[player.direction];
@@ -25,13 +34,15 @@
   }
 
   // One bounded flood fill measures escape space and shortest reachable food distance.
-  function inspectSpace(game, start, blocked, targets) {
+  function inspectSpace(game, start, blocked, targets, powerTargets) {
     const queue = [{ cell: start, distance: 0 }];
     const visited = new Set([key(start)]);
     let foodDistance = game.columns * game.rows + 1;
+    let powerDistance = foodDistance;
     for (let i = 0; i < queue.length; i++) {
       const { cell, distance } = queue[i];
       if (targets.has(key(cell))) foodDistance = Math.min(foodDistance, distance);
+      if (powerTargets.has(key(cell))) powerDistance = Math.min(powerDistance, distance);
       for (const next of neighbors(game, cell)) {
         const id = key(next);
         if (blocked.has(id) || visited.has(id)) continue;
@@ -39,14 +50,17 @@
         queue.push({ cell: next, distance: distance + 1 });
       }
     }
-    return { area: visited.size, foodDistance };
+    return { area: visited.size, foodDistance, powerDistance };
   }
 
   function chooseDirection(game, playerIndex, reserved = new Set()) {
     const player = game.players[playerIndex];
     if (!player || !player.alive || game.status !== 'playing') return null;
     const ordinaryFood = [...game.foods, game.goldenFood].filter(Boolean);
-    const targets = new Set((player.controlsReversed && game.herbs.length ? game.herbs : [...ordinaryFood, ...game.powerups]).map(key));
+    const profile = personality(game, playerIndex);
+    const needsCure = player.controlsReversed && game.herbs.length > 0;
+    const targets = new Set((needsCure ? game.herbs : ordinaryFood).map(key));
+    const powerTargets = new Set((needsCure ? [] : game.powerups).map(key));
     const growthCells = new Set([...ordinaryFood, ...game.mushrooms].map(key));
     const mushrooms = new Set(game.mushrooms.map(key));
     const occupied = new Set([
@@ -69,10 +83,13 @@
       if (blocked.has(id)) continue;
       for (const cell of mushrooms) if (cell !== id) blocked.add(cell);
       for (const cell of reserved) blocked.add(cell);
-      const { area, foodDistance } = inspectSpace(game, next, blocked, targets);
-      const enoughSpace = area >= player.snake.length + 2;
-      const score = (enoughSpace ? 10000 : area * 100) - (threats.has(id) ? 1000 : 0) - (mushrooms.has(id) ? 2000 : 0)
-        - foodDistance * 10 + Math.min(area, 100) * 0.1 + (direction === player.direction ? 0.01 : 0);
+      const { area, foodDistance, powerDistance } = inspectSpace(game, next, blocked, targets, powerTargets);
+      const enoughSpace = area >= player.snake.length + profile.roomMargin;
+      const attraction = Math.max(-foodDistance * profile.foodWeight,
+        powerDistance <= game.columns * game.rows ? profile.powerBonus - powerDistance * 10 : -Infinity);
+      // Room to survive outranks a tempting dead end, including for long snakes.
+      const score = (enoughSpace ? 100000 : area * 100) - (threats.has(id) ? profile.riskPenalty : 0) - (mushrooms.has(id) ? 2000 : 0)
+        + attraction + Math.min(area, 100) * profile.spaceWeight + (direction === player.direction ? 0.01 : 0);
       if (!best || score > best.score) best = { direction, score };
     }
     // A trapped snake still follows normal collision rules; it never teleports or reverses.
@@ -91,7 +108,7 @@
     });
   }
 
-  const SnakeAI = { chooseDirection, steer };
+  const SnakeAI = Object.freeze({ chooseDirection, steer, personality });
   if (typeof module !== 'undefined' && module.exports) module.exports = { SnakeAI };
   else root.SnakeAI = SnakeAI;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

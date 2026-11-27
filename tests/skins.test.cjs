@@ -88,6 +88,30 @@ test('renderer handles wraparound bodies and skips empty or collapsed previews',
   assert.equal(calls.length, 0);
 });
 
+test('body materials are rasterized once per skin and reused across frames and sizes', () => {
+  const surfaces = [];
+  class OffscreenCanvas {
+    constructor(width, height) {
+      this.width = width; this.height = height;
+      this.recording = recordingContext(); surfaces.push(this);
+    }
+    getContext() { return this.recording.context; }
+  }
+  const sandbox = { OffscreenCanvas };
+  vm.runInNewContext(readFileSync(join(__dirname, '..', 'snake-renderer.js'), 'utf8'), sandbox);
+  const { context, calls } = recordingContext();
+  const player = sample(); const before = JSON.stringify(player);
+  for (let frame = 0; frame < 20; frame++) sandbox.SnakeRenderer.draw(context, { left: frame, top: 0, cell: 12 + frame, player, skin: SnakeSkins.get('classic') });
+  assert.equal(surfaces.length, 4, 'only a strip, joint and two pattern tiles are needed per material');
+  assert.ok(surfaces.every((surface) => surface.width === 96 && surface.height === 96));
+  assert.ok(calls.some(([method]) => method === 'drawImage'));
+  const bodyStops = surfaces.flatMap((surface) => surface.recording.calls).filter(([method]) => method === 'colorStop');
+  assert.equal(bodyStops.length, 10, 'two cached gradients, not one per body segment per frame');
+  sandbox.SnakeRenderer.draw(context, { left: 0, top: 0, cell: 20, player, skin: SnakeSkins.get('ember') });
+  assert.equal(surfaces.length, 8);
+  assert.equal(JSON.stringify(player), before);
+});
+
 test('browser scripts export without a DOM or bundler and picker options match the catalog', () => {
   const sandbox = {};
   for (const path of ['snake-skins.js', 'snake-renderer.js']) {

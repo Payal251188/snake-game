@@ -10,20 +10,21 @@
   const opposite = { up: 'down', down: 'up', left: 'right', right: 'left' };
   const herbDelayMs = 5000;
   const baseInterval = 240;
+  const comboWindowMs = 12000;
   const animalActions = { rat: { delay: 1800, duration: 100 }, rabbit: { delay: 2400, duration: 160 }, frog: { delay: 3600, duration: 200 } };
 
   class SnakeGame {
-    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0, animatedFood = false, powerupsEnabled = false } = {}) {
+    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0, animatedFood = false, powerupsEnabled = false, combosEnabled = false } = {}) {
       if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 6 || rows < 6) {
         throw new RangeError('The board must be at least 6 × 6 cells.');
       }
       this.columns = columns;
       this.rows = rows;
       this.random = random;
-      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount, animatedFood, powerupsEnabled });
+      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount, animatedFood, powerupsEnabled, combosEnabled });
     }
 
-    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount, animatedFood = this.animatedFood, powerupsEnabled = this.powerupsEnabled } = {}) {
+    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount, animatedFood = this.animatedFood, powerupsEnabled = this.powerupsEnabled, combosEnabled = this.combosEnabled } = {}) {
       if (!['classic', 'obstacles', 'maze'].includes(mode)) throw new RangeError('Unknown game mode.');
       if (![1, 2].includes(playerCount)) throw new RangeError('Choose one or two players.');
       if (!Number.isInteger(aiCount) || aiCount < 0 || aiCount > 3 || (aiCount > 0 && playerCount !== 1)) throw new RangeError('AI Arena supports one human and up to three bots.');
@@ -36,6 +37,7 @@
       this.mushroomCount = mushroomCount;
       this.animatedFood = Boolean(animatedFood);
       this.powerupsEnabled = Boolean(powerupsEnabled);
+      this.combosEnabled = Boolean(combosEnabled);
       this.powerups = [];
       this.nextPowerupAt = 7000;
       this.slowUntil = 0;
@@ -65,7 +67,8 @@
           direction: facingRight ? 'right' : 'left', turns: [], score: 0,
           ai: index >= playerCount, alive: true,
           controlsReversed: false, herbReadyAt: null, mushroomsEaten: 0, herbsEaten: 0,
-          shieldUntil: 0, powerupsCollected: 0,
+          shieldUntil: 0, powerupsCollected: 0, shieldSaves: 0, survivedMs: 0,
+          comboCount: 0, comboUntil: 0, bestCombo: 0, comboBonus: 0,
           eaten: { rat: 0, rabbit: 0, frog: 0 }, goldenEaten: 0, collision: null,
         };
       });
@@ -154,15 +157,19 @@
     get interval() { return Math.max(40, baseInterval / this.speedMultiplier) * (this.slowRemainingMs ? 1.5 : 1); }
     get foodType() { return this.food ? this.food.type || animals[this.preyCaught % 3] : null; }
     shieldRemainingMs(player) { return Math.max(0, player.shieldUntil - this.elapsedMs); }
+    comboRemainingMs(player) { return Math.max(0, player.comboUntil - this.elapsedMs); }
 
     turn(direction, playerIndex = 0) {
       const player = this.players[playerIndex];
-      if (this.status !== 'playing' || !player || !player.alive || !Object.hasOwn(directions, direction) || player.turns.length >= 2) return false;
-      const previous = player.turns.at(-1) || player.direction;
+      if (this.status !== 'playing' || !player || !player.alive || !Object.hasOwn(directions, direction)) return false;
+      // Keep the imminent turn; let a fresh legal input correct the second queued turn.
+      const slot = Math.min(player.turns.length, 1);
+      if (player.turns.length === 2 && player.turns[1] === direction) return false;
+      const previous = slot ? player.turns[0] : player.direction;
       const a = directions[previous];
       const b = directions[direction];
       if (previous === direction || (a.x + b.x === 0 && a.y + b.y === 0)) return false;
-      player.turns.push(direction);
+      player.turns.splice(slot, 1, direction);
       return true;
     }
 
@@ -356,6 +363,7 @@
         for (const index of protectedPlayers) {
           const player = this.players[index];
           player.shieldUntil = 0;
+          player.shieldSaves++;
           moves[index] = { head: { ...player.snake[0] }, body: player.snake, blocked: true };
           this.lastEvents.push({ type: 'shield-block', playerIndex: index });
         }
@@ -377,6 +385,10 @@
       this.lastCatches = [];
       this.lastEvents = [];
       this.elapsedMs += this.interval;
+      for (const player of this.players) {
+        if (player.alive) player.survivedMs = this.elapsedMs;
+        if (player.comboUntil && this.elapsedMs > player.comboUntil) { player.comboCount = 0; player.comboUntil = 0; }
+      }
       this.updateConsumables();
       this.updatePowerups();
       const moves = this.predictMoves();
@@ -405,7 +417,7 @@
         if (!grows) player.snake.pop();
         if (grows || move.herb || move.powerup) {
           const type = move.powerup ? move.powerup.type : move.mushroom ? 'mushroom' : move.herb ? 'herb' : move.eatsGolden ? 'golden' : move.prey.type;
-          const points = move.powerup ? 0 : move.mushroom ? 50 : move.herb ? 0 : move.eatsGolden ? 5 : 1;
+          let points = move.powerup ? 0 : move.mushroom ? 50 : move.herb ? 0 : move.eatsGolden ? 5 : 1;
           if (move.powerup) {
             player.powerupsCollected++;
             if (type === 'shield') player.shieldUntil = this.elapsedMs + 8000;
@@ -424,6 +436,16 @@
             player.turns = [];
           } else if (move.eatsGolden) player.goldenEaten++;
           else player.eaten[type]++;
+          if (this.combosEnabled && !player.ai && animals.includes(type)) {
+            player.comboCount++;
+            player.comboUntil = this.elapsedMs + comboWindowMs;
+            player.bestCombo = Math.max(player.bestCombo, player.comboCount);
+            if (player.comboCount % 3 === 0) {
+              points++;
+              player.comboBonus++;
+              this.lastEvents.push({ type: 'combo-bonus', playerIndex: index, streak: player.comboCount, bonus: 1 });
+            }
+          }
           player.score += points;
           this.lastEater = index;
           this.lastCatches.push({ playerIndex: index, type, points });

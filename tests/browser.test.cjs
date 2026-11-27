@@ -9,6 +9,7 @@ const { SnakeSkins } = require('../snake-skins.js');
 const { SnakeRenderer } = require('../snake-renderer.js');
 const { SnakeItemsRenderer } = require('../snake-items-renderer.js');
 const { SnakeMotion } = require('../snake-motion.js');
+const { SnakeRewards } = require('../snake-rewards.js');
 const { SnakeBoard } = require('../snake-board.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
@@ -103,6 +104,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     SnakeItemsRenderer,
     SnakeMotion,
     SnakeBoard,
+    SnakeRewards,
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => motionQuery, devicePixelRatio: 1,
@@ -579,6 +581,8 @@ test('mushroom catch updates score, records, warning and cheering; herb cures wi
   assert.equal(g.element('mushroomCount').textContent, '1');
   assert.equal(g.element('controlStatus').hidden, false);
   assert.match(g.element('controlStatus').textContent, /P1 REVERSED.*5s/);
+  assert.equal(g.element('playerOneControls').dataset.reversed, 'true');
+  assert.match(g.element('p0-leftButton').attrs['aria-label'], /moves right.*reversed/);
   assert.match(g.element('announcer').textContent, /Controls reversed/);
   assert.match(g.element('friendMessage').textContent, /Mushroom! \+50/);
   assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:classic:solo')), { score: 50, name: 'Alex' });
@@ -596,6 +600,8 @@ test('mushroom catch updates score, records, warning and cheering; herb cures wi
   assert.equal(g.element('controlStatus').hidden, true);
   assert.match(g.element('announcer').textContent, /Normal controls restored/);
   assert.equal(g.engine.players[0].controlsReversed, false);
+  assert.equal(g.element('playerOneControls').dataset.reversed, 'false');
+  assert.doesNotMatch(g.element('p0-leftButton').attrs['aria-label'], /reversed/);
 });
 
 test('mushrooms reverse WASD, arrows, touch buttons and swipes consistently', () => {
@@ -759,6 +765,107 @@ test('rematches always begin a fresh countdown rather than moving immediately', 
   assert.equal(g.element('countdownNumber').textContent, '1');
   assert.equal(g.engine.score, 0);
   assert.equal(g.engine.elapsedMs, 0);
+});
+
+test('touch turns respond on press without replaying a synthetic click; keyboard clicks still work', () => {
+  const g = load();
+  g.click('playButton');
+  const up = g.element('p0-upButton');
+  let prevented = false;
+  up.listeners.pointerdown({ isPrimary: true, button: 0, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.deepEqual(g.engine.turns, ['up']);
+  g.engine.turns = []; g.engine.direction = 'left';
+  up.listeners.click({ detail: 1 });
+  assert.deepEqual(g.engine.turns, [], 'the corresponding pointer click is consumed');
+  up.listeners.click({ detail: 0 });
+  assert.deepEqual(g.engine.turns, ['up'], 'native keyboard activation is not suppressed');
+});
+
+test('both local touch pads accept simultaneous primary and secondary fingers', () => {
+  const g = load({ playerCount: null }); g.click('playButton');
+  g.element('p0-upButton').listeners.pointerdown({ isPrimary: true, pointerType: 'touch', button: 0, preventDefault() {} });
+  g.element('p1-downButton').listeners.pointerdown({ isPrimary: false, pointerType: 'touch', button: 0, preventDefault() {} });
+  assert.deepEqual(g.engine.players[0].turns, ['up']);
+  assert.deepEqual(g.engine.players[1].turns, ['down']);
+});
+
+test('ambiguous diagonal swipes are ignored and the next legal queued turn can be corrected', () => {
+  const g = load(); g.click('playButton');
+  const handlers = g.element('board').listeners;
+  handlers.pointerdown({ isPrimary: true, pointerId: 1, clientX: 100, clientY: 100 });
+  handlers.pointermove({ pointerId: 1, clientX: 130, clientY: 128 });
+  assert.deepEqual(g.engine.turns, []);
+  handlers.pointermove({ pointerId: 1, clientX: 100, clientY: 60 });
+  handlers.pointermove({ pointerId: 1, clientX: 60, clientY: 60 });
+  assert.deepEqual(g.engine.turns, ['up', 'left']);
+  g.key('ArrowRight');
+  assert.deepEqual(g.engine.turns, ['up', 'right']);
+  g.key('ArrowDown');
+  assert.deepEqual(g.engine.turns, ['up', 'right'], 'a correction cannot reverse the imminent up turn');
+});
+
+test('shield saves have a visible notice that freezes on pause and clears on restart', () => {
+  const g = load(); g.click('playButton');
+  g.engine.players[0].shieldUntil = 10000;
+  g.engine.obstacles = [{ ...g.engine.nextHead(g.engine.players[0]), type: 'wall' }];
+  for (const time of [0, 200, 400, 600]) g.frame(time);
+  assert.equal(g.element('eventNotice').hidden, false);
+  assert.match(g.element('eventNotice').textContent, /shield saved you.*turn now/);
+  g.click('pauseButton'); g.frame(10000);
+  assert.equal(g.element('eventNotice').hidden, false);
+  g.click('restartButton');
+  assert.equal(g.element('eventNotice').hidden, true);
+});
+
+test('animal chains award a modest bonus, celebrate the goal and produce a useful result summary', () => {
+  const g = load(); g.click('playButton');
+  g.engine.food = { ...g.engine.nextHead(g.engine.players[0]), type: 'rat' };
+  for (const time of [0, 200, 400, 600]) g.frame(time);
+  g.engine.food = { ...g.engine.nextHead(g.engine.players[0]), type: 'rabbit' }; g.frame(800);
+  g.engine.food = { ...g.engine.nextHead(g.engine.players[0]), type: 'frog' }; g.frame(1000);
+  assert.equal(g.engine.score, 4);
+  assert.equal(g.engine.level, 1);
+  assert.match(g.element('comboStatus').textContent, /CHAIN 3/);
+  assert.match(g.element('eventNotice').textContent, /combo bonus.*goal complete/);
+  assert.match(g.element('announcer').textContent, /combo bonus/);
+  g.engine.obstacles.push({ ...g.engine.nextHead(g.engine.players[0]), type: 'wall' });
+  g.frame(1200); g.frame(1400);
+  assert.equal(g.state(), 'over');
+  assert.equal(g.element('roundResults').hidden, false);
+  assert.equal(g.element('playerEntry').hidden, true, 'rematches do not require another name/avatar form');
+  assert.equal(g.element('result0Score').textContent, '4');
+  assert.equal(g.element('result0Animals').textContent, '3');
+  assert.equal(g.element('result0Chain').textContent, '3 · +1 bonus');
+  assert.match(g.element('result0Medals').textContent, /Balanced diet.*Catch rhythm.*New record/);
+  assert.match(g.element('result0Goal').textContent, /Goal complete/);
+  assert.equal(g.element('result1Card').hidden, true);
+  assert.equal(g.focus(), 'playButton');
+  g.click('resultHome');
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.element('best').textContent, '04');
+  assert.match(g.element('homeGoal').textContent, /60 active seconds/);
+});
+
+test('local result cards and optional goals belong to each human, not the combined catch total', () => {
+  const g = load({ playerCount: null }); g.click('playButton');
+  const feed = (type, index, time) => { g.engine.food = { ...g.engine.nextHead(g.engine.players[index]), type }; g.frame(time); };
+  g.engine.food = { ...g.engine.nextHead(g.engine.players[0]), type: 'rat' };
+  for (const time of [0, 200, 400, 600]) g.frame(time);
+  feed('rabbit', 1, 800); feed('frog', 0, 1000);
+  g.engine.obstacles.push({ ...g.engine.nextHead(g.engine.players[1]), type: 'wall' });
+  g.frame(1200); g.frame(1400);
+  assert.equal(g.element('roundResults').dataset.players, '2');
+  assert.equal(g.element('result1Card').hidden, false);
+  assert.equal(g.element('result0Score').textContent, '2');
+  assert.equal(g.element('result1Score').textContent, '1');
+  assert.doesNotMatch(g.element('result0Medals').textContent, /Balanced diet/);
+  assert.doesNotMatch(g.element('result1Medals').textContent, /Balanced diet/);
+  assert.match(g.element('result0Goal').textContent, /2\/3/);
+  assert.match(g.element('result1Goal').textContent, /1\/3/);
+  g.click('playButton');
+  assert.equal(g.element('roundResults').hidden, true);
+  assert.match(g.element('countdownGoal').textContent, /60 active seconds/);
 });
 
 test('UI starts, moves, pauses without advancing, resumes and restarts', () => {
@@ -1038,6 +1145,8 @@ test('three avatars unlock after naming, appear during play and survive pause, r
     g.engine.snake = [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }, { x: 3, y: 4 }];
     for (const time of [0, 200, 400, 600, 800]) g.frame(time);
     assert.equal(g.state(), 'over');
+    assert.equal(g.element('playerEntry').hidden, true);
+    g.click('resultHome');
     assert.equal(g.element('playerEntry').hidden, false);
   }
 });

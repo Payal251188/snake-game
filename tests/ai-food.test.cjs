@@ -184,6 +184,40 @@ test('AI uses classic wraparound routes and leaves human and dead-bot input alon
   assert.equal(JSON.stringify(g.players), snapshot);
 });
 
+test('AI personalities are fixed, immutable and choose food versus power-ups differently', () => {
+  const choices = [];
+  for (const index of [1, 2, 3]) {
+    const g = isolatedArena();
+    g.players.forEach((player, i) => { player.alive = i === index; });
+    setPlayer(g, index, 10, 10);
+    g.food = { x: 11, y: 10 };
+    g.powerups = [{ x: 10, y: 7, type: 'shield', expiresAt: 10000 }];
+    const snapshot = JSON.stringify(g);
+    choices.push(SnakeAI.chooseDirection(g, index));
+    assert.equal(Object.isFrozen(SnakeAI.personality(g, index)), true);
+    assert.equal(JSON.stringify(g), snapshot);
+  }
+  assert.deepEqual(choices, ['right', 'right', 'up']);
+  const g = isolatedArena();
+  assert.deepEqual([1, 2, 3].map((index) => SnakeAI.personality(g, index).name), ['Hungry', 'Cautious', 'Collector']);
+});
+
+test('the cautious bot prefers breathing room over food in a small enclosed pocket', () => {
+  for (const [index, expected] of [[1, 'right'], [2, 'down']]) {
+    const g = isolatedArena();
+    g.players.forEach((player, i) => { player.alive = i === index; });
+    setPlayer(g, index, 10, 10);
+    const open = new Set(['10,10']);
+    for (let x = 11; x <= 13; x++) for (let y = 9; y <= 10; y++) open.add(`${x},${y}`);
+    open.add('10,11'); open.add('10,12');
+    for (let x = 8; x <= 14; x++) for (let y = 13; y <= 18; y++) open.add(`${x},${y}`);
+    g.obstacles = [];
+    for (let x = 0; x < g.columns; x++) for (let y = 0; y < g.rows; y++) if (!open.has(`${x},${y}`)) g.obstacles.push({ x, y, type: 'wall' });
+    g.food = { x: 11, y: 10 };
+    assert.equal(SnakeAI.chooseDirection(g, index), expected);
+  }
+});
+
 test('seeded AI simulations stay legal and collect food in every map mode', () => {
   for (const mode of ['classic', 'obstacles', 'maze']) {
     let seed = 42;

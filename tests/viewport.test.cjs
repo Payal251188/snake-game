@@ -109,6 +109,25 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             await page.keyboard.press('Escape');
             assert.equal(await page.locator('#gameSettings').getAttribute('open'), null);
             assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).overflow), 'hidden');
+            await page.evaluate(() => {
+              const tick = SnakeGame.prototype.tick;
+              SnakeGame.prototype.tick = function () {
+                this.obstacles.push({ ...this.nextHead(this.players[0]), type: 'wall' });
+                return tick.call(this);
+              };
+            });
+            await startPlaying(page);
+            await page.clock.runFor(1000);
+            assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'over');
+            assert.equal(await page.locator('#roundResults').isVisible(), true);
+            assert.equal(await page.locator('#playerEntry').isVisible(), false);
+            const resultsFit = await page.evaluate(() => {
+              const fits = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth; };
+              return { play: fits('playButton'), home: fits('resultHome'), cards: fits('roundResults'), noScroll: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight };
+            });
+            assert.deepEqual(resultsFit, { play: true, home: true, cards: true, noScroll: true });
+            await page.locator('#resultHome').click();
+            assert.equal(await page.locator('#homeIntro').isVisible(), true);
             assert.deepEqual(errors, []);
           } finally {
             await context.close();
@@ -262,6 +281,66 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         } finally {
           await context.close();
         }
+      });
+    }
+    for (const [width, height] of [[1280, 800], [320, 568]]) {
+      await t.test(`combo rewards, shield clarity and round medals · ${width}×${height}`, async () => {
+        const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
+        try {
+          const page = await createTestPage(context);
+          const errors = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          await page.addInitScript(() => { Math.random = () => 0; });
+          await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+          await page.evaluate(() => {
+            const reset = SnakeGame.prototype.reset;
+            const tick = SnakeGame.prototype.tick;
+            SnakeGame.prototype.reset = function (options) { const result = reset.call(this, options); this.mushroomCount = 0; this.mushrooms = []; window.rewardTestEngine = this; return result; };
+            SnakeGame.prototype.tick = function () {
+              const plan = window.rewardPickup;
+              if (plan) {
+                window.rewardPickup = null;
+                const player = this.players[0];
+                const head = this.nextHead(player, player.turns[0] || player.direction);
+                this.food = { x: 0, y: 0, type: 'rat' }; this.extraFoods = []; this.mushrooms = []; this.herbs = []; this.powerups = []; this.nextPowerupAt = Infinity;
+                if (['rat', 'rabbit', 'frog'].includes(plan)) this.food = { ...head, type: plan };
+                if (plan === 'shield') this.powerups = [{ ...head, type: 'shield', expiresAt: this.elapsedMs + 10000 }];
+                if (plan === 'block' || plan === 'fatal') this.obstacles.push({ ...head, type: 'wall' });
+                if (plan === 'mushroom') this.mushrooms = [head];
+                if (plan === 'herb') { player.herbReadyAt = this.elapsedMs; this.herbs = [head]; }
+              }
+              const result = tick.call(this);
+              if (plan === 'block') this.turn('up', 0); // Leave the stopped hazard on the next legal tick.
+              return result;
+            };
+          });
+          await page.locator('#playerInput').fill('Alex');
+          await page.locator('#homeSettings').click();
+          await page.locator('#playersSelect').selectOption('1');
+          await page.locator('#modeSelect').selectOption('classic');
+          await page.keyboard.press('Escape');
+          await startPlaying(page);
+          const collect = async (type) => { await page.evaluate((pickup) => { window.rewardPickup = pickup; }, type); await page.clock.runFor(600); };
+          for (const type of ['rat', 'rabbit', 'frog']) await collect(type);
+          assert.equal(await page.locator('#score').textContent(), '04');
+          assert.equal(await page.locator('#comboStatus').isVisible(), true);
+          assert.match(await page.locator('#eventNotice').textContent(), /combo bonus.*goal complete/);
+          await collect('shield'); await collect('block');
+          assert.match(await page.locator('#eventNotice').textContent(), /shield saved you.*turn now/);
+          await collect('mushroom');
+          assert.equal(await page.locator('#playerOneControls').getAttribute('data-reversed'), 'true');
+          assert.match(await page.locator('#playerOneControls button[data-direction="left"]').getAttribute('aria-label'), /moves right.*reversed/);
+          await collect('herb');
+          assert.equal(await page.locator('#playerOneControls').getAttribute('data-reversed'), 'false');
+          await collect('fatal');
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'over');
+          assert.equal(await page.locator('#result0Score').textContent(), '54');
+          assert.equal(await page.locator('#result0Animals').textContent(), '3');
+          assert.match(await page.locator('#result0Medals').textContent(), /Balanced diet.*Shield save.*Catch rhythm.*New record/);
+          assert.equal(await page.locator('#resultHome').isVisible(), true);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth), true);
+          assert.deepEqual(errors, []);
+        } finally { await context.close(); }
       });
     }
     for (const [width, height] of [[1280, 800], [375, 667]]) {

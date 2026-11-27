@@ -39,9 +39,41 @@
     }
   }
 
+  const materials = new WeakMap();
+  function materialFor(skin) {
+    if (materials.has(skin)) return materials.get(skin);
+    const make = (paint) => {
+      let canvas;
+      if (typeof OffscreenCanvas !== 'undefined') canvas = new OffscreenCanvas(96, 96);
+      else if (typeof document !== 'undefined' && document.createElement) {
+        canvas = document.createElement('canvas'); canvas.width = canvas.height = 96;
+      }
+      const context = canvas?.getContext('2d');
+      if (!context) return null;
+      context.setTransform(96, 0, 0, 96, 48, 48);
+      paint(context);
+      return canvas;
+    };
+    const fill = (context) => {
+      const p = skin.palette;
+      const gradient = context.createLinearGradient(0, -0.325, 0, 0.325);
+      for (const [stop, color] of [[0, p.shadow], [0.28, p.low], [0.52, p.light], [0.8, p.mid], [1, p.edge]]) gradient.addColorStop(stop, color);
+      return gradient;
+    };
+    const strip = make((context) => { context.fillStyle = fill(context); context.fillRect(-0.5, -0.325, 1, 0.65); });
+    if (!strip) return null;
+    const joint = make((context) => ellipse(context, 0, 0, 0.325, 0.325, fill(context)));
+    const patterns = [0, 1].map((parity) => make((context) => drawPattern(context, 0.325, parity, skin)));
+    if (!joint || patterns.some((pattern) => !pattern)) return null;
+    const material = { strip, joint, patterns };
+    materials.set(skin, material);
+    return material;
+  }
+
   function draw(ctx, { left, top, cell, time = 0, player, skin, animate = false }) {
     if (!player.snake.length || cell <= 0) return;
     const palette = skin.palette;
+    const material = player.snake.length >= 5 ? materialFor(skin) : null;
     const points = player.snake.map(({ x, y }) => ({ x: left + (x + 0.5) * cell, y: top + (y + 0.5) * cell }));
     const radius = (i) => cell * (0.025 + 0.3 * Math.min(1, (points.length - 1 - i) / 3));
     ctx.lineCap = 'round';
@@ -55,6 +87,15 @@
         continue;
       }
       const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      if (material && i <= points.length - 4) {
+        ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(angle);
+        const distance = Math.hypot(b.x - a.x, b.y - a.y);
+        ctx.drawImage(material.strip, 0, -cell * 0.5, distance, cell);
+        ctx.drawImage(material.joint, -cell * 0.5, -cell * 0.5, cell, cell);
+        if (i === 1) ctx.drawImage(material.joint, distance - cell * 0.5, -cell * 0.5, cell, cell);
+        ctx.restore();
+        continue;
+      }
       const nx = -Math.sin(angle); const ny = Math.cos(angle);
       const ra = radius(i); const rb = radius(i - 1);
       const bodyGradient = ctx.createLinearGradient(b.x - nx * rb, b.y - ny * rb, b.x + nx * rb, b.y + ny * rb);
@@ -74,9 +115,13 @@
       let dx = next.x - p.x; let dy = next.y - p.y;
       if (Math.abs(dx) > cell * 1.5) dx = -Math.sign(dx) * cell;
       if (Math.abs(dy) > cell * 1.5) dy = -Math.sign(dy) * cell;
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(dy, dx)); ctx.scale(cell, cell);
-      const r = radius(i) / cell;
-      drawPattern(ctx, r, i, skin);
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(dy, dx));
+      if (material && i <= points.length - 4) {
+        if (skin.pattern !== 'plain') ctx.drawImage(material.patterns[i % 2], -cell * 0.5, -cell * 0.5, cell, cell);
+      } else {
+        ctx.scale(cell, cell);
+        drawPattern(ctx, radius(i) / cell, i, skin);
+      }
       ctx.restore();
     }
     const head = points[0];

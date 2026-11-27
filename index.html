@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — Play, grow, enjoy.</title>
-  <link rel="stylesheet" href="style.css?v=home-countdown1">
-  <script src="snake-engine.js?v=classic-mushrooms1" defer></script>
-  <script src="snake-ai.js?v=simple1" defer></script>
+  <link rel="stylesheet" href="style.css?v=polish1">
+  <script src="snake-engine.js?v=polish1" defer></script>
+  <script src="snake-ai.js?v=polish1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
-  <script src="snake-renderer.js?v=simple1" defer></script>
+  <script src="snake-renderer.js?v=polish1" defer></script>
   <script src="snake-items-renderer.js?v=simple1" defer></script>
   <script src="snake-motion.js?v=simple1" defer></script>
   <script src="snake-board.js?v=hazard-blocks1" defer></script>
-  <script src="game.js?v=home-countdown1" defer></script>
+  <script src="snake-rewards.js?v=polish1" defer></script>
+  <script src="game.js?v=polish1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -57,10 +58,12 @@
                 <label for="foodSelect">Food on board</label><select id="foodSelect"><option value="1">1</option><option value="5" selected>5</option><option value="10">10</option></select>
                 <label for="volumeInput">Volume</label><input id="volumeInput" type="range" min="0" max="1" step="0.05" value="0.75">
               </div>
+              <p class="settings-help" id="aiPersonalityHint" hidden></p>
               <div class="audio-controls"><button id="testSoundButton" type="button" aria-pressed="false">Test music</button><button id="testChompButton" type="button">Test bite</button></div>
               <p class="settings-help" id="audioStatus" role="status">Music starts when you play.</p>
             </details>
-            <p class="settings-help">Space: pause · R: restart<br>🍄 +50 reverses controls · 🌿 restores them<br>🛡 protects one collision · ⏱ slows the board</p>
+            <p class="settings-help">Space: pause · R: restart<br>Catch animals within 12 active seconds to keep a chain. Every third catch earns +1 bonus.</p>
+            <p class="settings-help" id="itemGuide">Animals +1 · × blocks are hazards · 🛡 one safe collision · ⏱ slows the board</p>
           </div>
         </details>
         <details class="game-settings" id="gameStats">
@@ -79,6 +82,7 @@
                 <p class="settings-help">Best for <strong id="recordType">Obstacles · Local versus</strong>: <strong id="bestDetailScore">00</strong> · <strong id="bestName">No record yet</strong><br>Food: <strong id="preyName">Rat</strong></p>
                 <p class="settings-help" id="legacyRecord" hidden></p>
                 <p class="ai-standings" id="aiStandings" hidden></p>
+                <p class="settings-help" id="roundGoal"></p>
                 <table>
                   <caption>Items collected by all snakes this round</caption>
                   <thead><tr><th scope="col">Item</th><th scope="col">Collected</th><th scope="col">Level target</th></tr></thead>
@@ -112,7 +116,7 @@
         <div class="score-group best-group"><span class="score-label">BEST</span><span class="score-value" id="best">00</span></div>
       </div>
       <div class="player-strip"><span class="player-identity"><img class="player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong></span><span id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong></span><span>LEVEL <strong id="arenaLevel">1</strong></span></div>
-      <div class="golden-notice"><span id="goldenStatus" data-active="false">★ Golden food · +5</span><span class="mushroom-status" id="mushroomStatus" hidden>🍄 0 · +50</span><span class="control-status" id="controlStatus" data-reversed="false" hidden></span><span class="powerup-status" id="powerupStatus" hidden></span></div>
+      <div class="golden-notice"><span id="goldenStatus" data-active="false">★ Golden food · +5</span><span class="mushroom-status" id="mushroomStatus" hidden>🍄 0 · +50</span><span class="control-status" id="controlStatus" data-reversed="false" hidden></span><span class="powerup-status" id="powerupStatus" hidden></span><span class="combo-status" id="comboStatus" title="Catch an animal within 12 active seconds. Every third catch earns +1 bonus." hidden></span></div>
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Steer with WASD or arrow keys. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay"><div class="overlay-content">
@@ -121,10 +125,24 @@
             <span class="home-kicker">WELCOME TO SNAKE CLUB</span>
             <h1>Small snake.<br> Big adventure.</h1>
             <p>Grab a bite. Find your rhythm.<br>Make the next round your best.</p>
+            <span class="home-goal" id="homeGoal"></span>
             <span class="home-summary" id="homeSummary">Obstacles · Local versus</span>
             <button class="home-settings-button" id="homeSettings" type="button">Choose map &amp; players ↗</button>
           </div>
           <span class="overlay-tag" id="overlayTag">LET’S PLAY</span><h2 id="overlayTitle">One more bite?</h2><p id="overlayText">Eat, grow, and enjoy.</p>
+          <section class="round-results" id="roundResults" aria-label="Round results" tabindex="0" hidden>
+            <article class="result-card" id="result0Card">
+              <strong id="result0Name">Player 1</strong>
+              <dl class="result-numbers"><div><dt>Score</dt><dd id="result0Score">0</dd></div><div><dt>Time</dt><dd id="result0Time">0:00</dd></div><div><dt>Animals</dt><dd id="result0Animals">0</dd></div><div><dt>Best chain</dt><dd id="result0Chain">0</dd></div></dl>
+              <p class="result-prey" id="result0Prey"></p><p class="result-medals" id="result0Medals"></p><p class="result-goal" id="result0Goal"></p>
+            </article>
+            <article class="result-card" id="result1Card" hidden>
+              <strong id="result1Name">Player 2</strong>
+              <dl class="result-numbers"><div><dt>Score</dt><dd id="result1Score">0</dd></div><div><dt>Time</dt><dd id="result1Time">0:00</dd></div><div><dt>Animals</dt><dd id="result1Animals">0</dd></div><div><dt>Best chain</dt><dd id="result1Chain">0</dd></div></dl>
+              <p class="result-prey" id="result1Prey"></p><p class="result-medals" id="result1Medals"></p><p class="result-goal" id="result1Goal"></p>
+            </article>
+            <p class="result-record" id="resultRecord"></p>
+          </section>
           <div class="player-entry" id="playerEntry">
             <label for="playerInput" id="playerInputLabel">Player 1</label><input id="playerInput" name="player" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" aria-describedby="nameHint" required>
             <span id="nameHint">Your name is saved on this device.</span>
@@ -137,9 +155,10 @@
             </details>
             <div class="opponent-entry" id="opponentEntry"><label for="opponentInput">Player 2 · arrow keys</label><input id="opponentInput" name="opponent" type="text" maxlength="24" autocomplete="off" value="Player 2" aria-describedby="opponentHint" required><span id="opponentHint">Share the keyboard with a friend.</span></div>
           </div>
-          <button class="play-button" id="playButton" type="button"><span id="playLabel">LET’S PLAY</span><span aria-hidden="true">↗</span></button><span class="space-hint" id="spaceHint">or press space</span>
+          <div class="overlay-actions"><button class="play-button" id="playButton" type="button"><span id="playLabel">LET’S PLAY</span><span aria-hidden="true">↗</span></button><button class="result-home" id="resultHome" type="button" hidden>⌂ HOME</button></div><span class="space-hint" id="spaceHint">or press space</span>
         </div></div>
-        <div class="countdown" id="countdown" role="status" aria-live="polite" aria-atomic="true" hidden><span class="countdown-caption">GET READY</span><strong id="countdownNumber">1</strong><span class="countdown-caption">Your next adventure starts here</span></div>
+        <div class="event-notice" id="eventNotice" aria-hidden="true" hidden></div>
+        <div class="countdown" id="countdown" role="status" aria-live="polite" aria-atomic="true" hidden><span class="countdown-caption">GET READY</span><strong id="countdownNumber">1</strong><span class="countdown-caption" id="countdownGoal">Your next adventure starts here</span></div>
       </div>
       <div class="game-footer">
         <span class="speed-label">PACE <strong id="pace">1.0×</strong></span>
@@ -148,8 +167,8 @@
       </div>
     </section>
     <div class="touch-area">
-      <div class="touch-controls" role="group" aria-label="Player 1 direction controls"><button type="button" data-direction="up" aria-label="Move up">↑</button><button type="button" data-direction="left" aria-label="Move left">←</button><span id="playerOneControlsLabel" aria-hidden="true">P1 · WASD</span><button type="button" data-direction="right" aria-label="Move right">→</button><button type="button" data-direction="down" aria-label="Move down">↓</button></div>
-      <div class="touch-controls player-two-controls" id="playerTwoControls" role="group" aria-label="Player 2 direction controls"><button type="button" data-player="1" data-direction="up" aria-label="Player 2 move up">↑</button><button type="button" data-player="1" data-direction="left" aria-label="Player 2 move left">←</button><span aria-hidden="true">P2 · ARROWS</span><button type="button" data-player="1" data-direction="right" aria-label="Player 2 move right">→</button><button type="button" data-player="1" data-direction="down" aria-label="Player 2 move down">↓</button></div>
+      <div class="touch-controls" id="playerOneControls" role="group" aria-label="Player 1 direction controls"><button type="button" data-direction="up" aria-label="Move up">↑</button><button type="button" data-direction="left" aria-label="Move left">←</button><span id="playerOneControlsLabel" aria-hidden="true">P1 · WASD</span><button type="button" data-direction="right" aria-label="Move right">→</button><button type="button" data-direction="down" aria-label="Move down">↓</button></div>
+      <div class="touch-controls player-two-controls" id="playerTwoControls" role="group" aria-label="Player 2 direction controls"><button type="button" data-player="1" data-direction="up" aria-label="Player 2 move up">↑</button><button type="button" data-player="1" data-direction="left" aria-label="Player 2 move left">←</button><span id="playerTwoControlsLabel" aria-hidden="true">P2 · ARROWS</span><button type="button" data-player="1" data-direction="right" aria-label="Player 2 move right">→</button><button type="button" data-player="1" data-direction="down" aria-label="Player 2 move down">↓</button></div>
     </div>
     <div class="sr-only" id="announcer" aria-live="polite" aria-atomic="true"></div>
   </main>
