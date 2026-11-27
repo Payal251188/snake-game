@@ -25,8 +25,9 @@
   function rounded(ctx, x, y, w, h, r, fill) {
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
   }
-  function paint(ctx, { width, height, columns, rows, obstacles, theme }, frame) {
-    const colors = themes[resolve(theme)];
+  function paint(ctx, { width, height, columns, rows, obstacles, theme, season }, frame) {
+    const colors = season === 'winter' || season === 'sleeping'
+      ? { top: '#192c3b', bottom: '#395563', floor: '#29414c', grid: '#d8eff326', edge: '#d9edf088' } : themes[resolve(theme)];
     const sky = ctx.createLinearGradient(0, 0, width, height);
     sky.addColorStop(0, colors.top); sky.addColorStop(1, colors.bottom);
     ctx.fillStyle = sky; ctx.fillRect(0, 0, width, height);
@@ -79,7 +80,7 @@
       draw(ctx, options) {
         const frame = layout(options.width, options.height, options.columns, options.rows);
         const scale = options.pixelRatio || 1;
-        const key = [options.width, options.height, options.columns, options.rows, scale, resolve(options.theme), signature(options.obstacles)].join(':');
+        const key = [options.width, options.height, options.columns, options.rows, scale, resolve(options.theme), options.season || 'summer', signature(options.obstacles)].join(':');
         if (!cached || cached.key !== key) {
           const canvas = createSurface(Math.max(1, Math.round(options.width * scale)), Math.max(1, Math.round(options.height * scale)));
           const buffer = canvas?.getContext('2d');

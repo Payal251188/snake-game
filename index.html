@@ -5,19 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — Play, grow, enjoy.</title>
-  <link rel="stylesheet" href="style.css?v=accounts1">
-  <script src="snake-engine.js?v=team1" defer></script>
-  <script src="snake-ai.js?v=polish1" defer></script>
+  <link rel="stylesheet" href="style.css?v=clock1">
+  <script src="snake-engine.js?v=seasons1" defer></script>
+  <script src="snake-ai.js?v=seasons1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
   <script src="snake-renderer.js?v=polish1" defer></script>
   <script src="snake-items-renderer.js?v=simple1" defer></script>
-  <script src="snake-motion.js?v=simple1" defer></script>
-  <script src="snake-board.js?v=hazard-blocks1" defer></script>
+  <script src="snake-motion.js?v=seasons1" defer></script>
+  <script src="snake-board.js?v=seasons1" defer></script>
   <script src="snake-rewards.js?v=polish1" defer></script>
   <script src="auth-config.js?v=accounts1" defer></script>
   <script src="snake-auth.js?v=accounts1" defer></script>
   <script src="snake-breaks.js?v=accounts1" defer></script>
-  <script src="game.js?v=accounts1" defer></script>
+  <script src="snake-voice.js?v=clock1" defer></script>
+  <script src="game.js?v=clock1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -29,18 +30,7 @@
           <summary id="settingsSummary">SETTINGS</summary>
           <div class="settings-panel" role="region" aria-label="Game settings">
             <h2>Make it your game</h2>
-            <div class="mode-controls">
-              <label for="playersSelect">Play</label>
-              <select id="playersSelect" aria-describedby="controlsHint">
-                <option value="1">Solo</option><option value="ai">You vs AI snakes</option><option value="2" selected>Two players · team</option>
-              </select>
-              <label for="modeSelect">Map</label>
-              <select id="modeSelect" aria-describedby="modeHint">
-                <option value="obstacles" selected>Obstacles</option><option value="maze">Maze</option><option value="classic">Classic · wraparound</option>
-              </select>
-            </div>
-            <p class="settings-help" id="controlsHint">P1: WASD · P2: arrow keys.</p>
-            <p class="settings-help" id="modeHint">Solid edges. Dodge walls and rocks.</p>
+            <p class="settings-help">Choose Map and Play on Home, just above Let’s play.</p>
             <details class="more-options">
               <summary>Appearance</summary>
               <section class="skin-picker" aria-label="Snake appearance">
@@ -60,7 +50,7 @@
                 <span class="ai-settings" id="aiSettings" hidden><label for="aiCountSelect">AI snakes</label><select id="aiCountSelect"><option value="2">2</option><option value="3" selected>3</option></select></span>
                 <label for="foodSelect">Food on board</label><select id="foodSelect"><option value="1">1</option><option value="5" selected>5</option><option value="10">10</option></select>
                 <label for="breakToggle">Break auto-pause</label><input id="breakToggle" type="checkbox" role="switch" aria-describedby="breakHelp">
-                <span class="break-options" id="breakOptions" hidden><label for="breakMinutes">Pause after (minutes)</label><input id="breakMinutes" type="number" min="1" max="60" step="1" value="2"><span id="breakHelp" class="settings-help">Pause after uninterrupted play. Resume when ready; the break timer restarts.</span></span>
+                <span class="break-options" id="breakOptions" hidden><label for="breakMinutes">Pause after (minutes)</label><input id="breakMinutes" type="number" min="1" max="60" step="1" value="2"><span id="breakHelp" class="settings-help">Pause after uninterrupted play. The final 10 seconds are spoken in a low-pitched voice when sound is on and browser speech is available. Resume when ready; the break timer restarts.</span></span>
                 <label for="volumeInput">Volume</label><input id="volumeInput" type="range" min="0" max="1" step="0.05" value="0.75">
               </div>
               <p class="settings-help" id="aiPersonalityHint" hidden></p>
@@ -81,11 +71,11 @@
             <section aria-labelledby="helpControls">
               <h3 id="helpControls">1. Start and steer</h3>
               <ul>
-                <li>On Home, choose your map and play type in Settings, enter your name, and press <strong>Let’s play</strong>. Choose Google, Facebook, or Play without login; only guests are asked for a player name. Two players also choose a team name. Every new round and rematch begins with <strong>1 → 2 → 3 → GO!</strong></li>
+                <li>On Home, enter your name, then choose Map and Play just above <strong>Let’s play</strong>. Choose Google, Facebook, or Play without login; only guests are asked for a player name. Two players also choose a team name. Every new round and rematch begins with <strong>1 → 2 → 3 → GO!</strong></li>
                 <li><strong>Solo / AI Arena:</strong> use WASD or arrow keys.</li>
                 <li><strong>Two players:</strong> Player 1 uses WASD; Player 2 uses arrow keys. On touchscreens, use the labeled direction pads. Swiping the board steers Player 1.</li>
                 <li>You cannot reverse directly into yourself. Two legal turns can be queued; you can choose your first turn during the countdown.</li>
-                <li><strong>Space:</strong> start, pause, or resume. <strong>Escape:</strong> pause or close an open panel. <strong>R:</strong> restart. <strong>Home:</strong> leave the round and return to setup. In Settings → More options, enable break auto-pause and choose 1–60 minutes (default 2). Pauses, Home, countdown, and new rounds reset this uninterrupted-play timer; Resume starts it again.</li>
+                <li><strong>Space:</strong> start, pause, or resume. <strong>Escape:</strong> pause or close an open panel. <strong>R:</strong> restart. <strong>Home:</strong> leave the round and return to setup. In Settings → More options, enable break auto-pause and choose 1–60 minutes (default 2). Pauses, Home, countdown, and new rounds reset this uninterrupted-play timer; Resume starts it again. The red-on-black digital clock shows play time and the next break; the final ten seconds are spoken when sound and browser speech are available.</li>
                 <li>Maps, player count, and food density lock during play, countdown, and pause. Return Home to change them. Skins and backdrops can be changed without resetting a round.</li>
               </ul>
             </section>
@@ -122,17 +112,18 @@
             </section>
             <section aria-labelledby="helpLevels">
               <h3 id="helpLevels">4. Levels and speed</h3>
-              <p>Each new level requires <strong>another 10 rats, 10 rabbits, and 10 frogs caught by humans</strong>. You need all three targets—not just 30 catches of any kind.</p>
-              <p>In Solo and AI Arena, only your catches count. In local two-player games, both humans contribute together. <strong>AI catches, special items, and score bonuses never increase the level.</strong> Animal totals reset each round.</p>
+              <p>Level 1 requires <strong>10 rats, 10 rabbits, and 10 frogs caught by humans</strong>. Each later level needs <strong>5 more of each animal</strong>: 15 each in Level 2, 20 each in Level 3, and so on. These are fresh targets for each level, not cumulative round totals.</p>
+              <p>In Solo and AI Arena, only your catches count. In local two-player games, both humans contribute together. <strong>AI catches, special items, and score bonuses never increase the level.</strong> Level progress resets each summer; round totals and your score remain until the round ends.</p>
+              <p>When the target is reached, “Level completed — Winter is coming” appears. Choose Find shelter and steer into the labeled edge DEN. Both teammates must enter in co-op; AI snakes rest automatically. Your snake slides into the hole. Summer then starts the next level with a three-segment snake, preserved score, and higher speed.</p>
               <table class="help-speed-table">
                 <caption>Normal speed, without slow motion. Fewer milliseconds per cell means faster movement.</caption>
-                <thead><tr><th scope="col">Level</th><th scope="col">Total of each animal</th><th scope="col">Speed</th><th scope="col">Time / cell</th></tr></thead>
+                <thead><tr><th scope="col">Level</th><th scope="col">Target each level</th><th scope="col">Speed</th><th scope="col">Time / cell</th></tr></thead>
                 <tbody>
-                  <tr><th scope="row">1</th><td>Start</td><td>1.0×</td><td>240 ms</td></tr>
-                  <tr><th scope="row">2</th><td>10 each</td><td>1.2×</td><td>200 ms</td></tr>
+                  <tr><th scope="row">1</th><td>10 each</td><td>1.0×</td><td>240 ms</td></tr>
+                  <tr><th scope="row">2</th><td>15 each</td><td>1.2×</td><td>200 ms</td></tr>
                   <tr><th scope="row">3</th><td>20 each</td><td>1.4×</td><td>≈171 ms</td></tr>
-                  <tr><th scope="row">4</th><td>30 each</td><td>1.6×</td><td>150 ms</td></tr>
-                  <tr><th scope="row">5</th><td>40 each</td><td>1.8×</td><td>≈133 ms</td></tr>
+                  <tr><th scope="row">4</th><td>25 each</td><td>1.6×</td><td>150 ms</td></tr>
+                  <tr><th scope="row">5</th><td>30 each</td><td>1.8×</td><td>≈133 ms</td></tr>
                 </tbody>
               </table>
               <p>Each level adds <strong>20% of the starting speed</strong>: 1.0× → 1.2× → 1.4× → 1.6×, not a compounded 20% increase. Normal movement is capped at <strong>6× speed (40 ms per cell)</strong>. Slow motion makes the current time per cell 1.5× longer.</p>
@@ -155,7 +146,7 @@
           <div class="settings-panel stats-panel" role="region" aria-label="Round statistics">
             <section class="hunt-stats" aria-labelledby="huntTitle">
               <div class="hunt-heading"><h2 id="huntTitle">Level progress</h2><span>LEVEL <strong id="level">1</strong> · <strong id="levelSpeed">1.0×</strong></span></div>
-              <p class="settings-help">Eat 10 of each animal per level. Only human catches count.</p>
+              <p class="settings-help">Level 1 needs 10 of each animal; later levels need 5 more each. Only human catches count.</p>
               <div class="level-progress">
                 <label>Rat <span id="ratProgressText">0/10</span><progress id="ratProgress" max="10" value="0"></progress></label>
                 <label>Rabbit <span id="rabbitProgressText">0/10</span><progress id="rabbitProgress" max="10" value="0"></progress></label>
@@ -199,7 +190,7 @@
         <div class="sr-only"><span id="matchStatus">READY TO GROW</span></div>
         <div class="score-group best-group"><span class="score-label">BEST</span><span class="score-value" id="best">00</span></div>
       </div>
-      <div class="player-strip"><span class="team-banner" id="teamNameBanner" hidden></span><span class="player-identity"><img class="player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong><span class="member-score" id="playerOneScore" hidden></span></span><span id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong><span class="member-score" id="playerTwoScore" hidden></span></span><span>LEVEL <strong id="arenaLevel">1</strong></span></div>
+      <div class="player-strip"><span class="team-banner" id="teamNameBanner" hidden></span><span class="player-identity"><img class="player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong><span class="member-score" id="playerOneScore" hidden></span></span><span id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong><span class="member-score" id="playerTwoScore" hidden></span></span><span>LEVEL <strong id="arenaLevel">1</strong></span><span class="game-clock" id="gameClock" aria-label="Game timers"><span class="clock-part"><span class="clock-caption">PLAY TIME</span><strong id="playTime">00:00</strong></span><span class="clock-part" id="breakReadout" hidden><span class="clock-caption">BREAK IN</span><strong id="breakTime">02:00</strong></span></span></div>
       <div class="golden-notice"><span id="goldenStatus" data-active="false">★ Golden food · +5</span><span class="mushroom-status" id="mushroomStatus" hidden>🍄 0 · +50</span><span class="control-status" id="controlStatus" data-reversed="false" hidden></span><span class="powerup-status" id="powerupStatus" hidden></span><span class="combo-status" id="comboStatus" title="Catch an animal within 12 active seconds. Every third catch earns +1 bonus." hidden></span></div>
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Steer with WASD or arrow keys. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
@@ -244,6 +235,20 @@
               </div></fieldset><span id="avatarHint">Enter your name to unlock the avatars.</span>
             </details>
             <div class="opponent-entry" id="opponentEntry"><label for="opponentInput">Player 2 · arrow keys</label><input id="opponentInput" name="opponent" type="text" maxlength="24" autocomplete="off" value="Player 2" aria-describedby="opponentHint" required><span id="opponentHint">Share the keyboard with a friend.</span></div>
+          </div>
+          <div class="home-setup" id="homeSetup" hidden>
+            <div class="mode-controls">
+              <label for="playersSelect">Play</label>
+              <select id="playersSelect" aria-describedby="controlsHint">
+                <option value="1">Solo</option><option value="ai">You vs AI snakes</option><option value="2" selected>Two players · team</option>
+              </select>
+              <label for="modeSelect">Map</label>
+              <select id="modeSelect" aria-describedby="modeHint">
+                <option value="obstacles" selected>Obstacles</option><option value="maze">Maze</option><option value="classic">Classic · wraparound</option>
+              </select>
+            </div>
+            <p class="settings-help" id="controlsHint">P1: WASD · P2: arrow keys.</p>
+            <p class="settings-help" id="modeHint">Solid edges. Dodge walls and rocks.</p>
           </div>
           <div class="overlay-actions"><button class="play-button" id="playButton" type="button" hidden><span id="playLabel">LET’S PLAY</span><span aria-hidden="true">↗</span></button><button class="result-home" id="resultHome" type="button" hidden>⌂ HOME</button></div><span class="space-hint" id="spaceHint">or press space</span>
         </div></div>

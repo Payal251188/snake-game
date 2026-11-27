@@ -46,18 +46,21 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             page.on('pageerror', (error) => errors.push(error.message));
             await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
             assert.equal(await page.locator('#authPanel').isVisible(), true);
+            await page.locator('#playButton').scrollIntoViewIfNeeded();
             const homeFits = await page.locator('#playButton').evaluate((button) => {
               const rect = button.getBoundingClientRect();
               return rect.top >= 0 && rect.bottom <= innerHeight && document.documentElement.scrollHeight <= innerHeight;
             });
-            assert.equal(homeFits, true, 'home Play button is visible without scrolling');
+            assert.equal(homeFits, true, 'home setup scrolls locally while keeping the Play button reachable');
             await page.locator('#playerInput').fill('Alex');
+            await page.locator('#playersSelect').selectOption(selection);
+            assert.equal(await page.locator('#playersSelect').evaluate((field) => Boolean(field.closest('#homeSetup')) && !field.closest('#gameSettings')), true);
+            assert.equal(await page.locator('#modeSelect').evaluate((field) => Boolean(field.closest('#homeSetup')) && !field.closest('#gameSettings')), true);
             await page.locator('#settingsSummary').click();
             await page.getByText('Appearance', { exact: true }).click();
             const skin = selection === 'ai' ? 'ember' : 'neon';
             await page.locator('#skinSelect').selectOption(skin);
             if (selection === 'ai') {
-              await page.locator('#playersSelect').selectOption('ai');
               await page.getByText('More options', { exact: true }).click();
               await page.locator('#foodSelect').selectOption('10');
             }
@@ -503,6 +506,48 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         assert.equal(await page.locator('#mushroomStatus').getAttribute('hidden'), null);
       } finally { await context.close(); }
     });
+    for (const [width, height, mode] of [[1280, 800, 'obstacles'], [320, 568, 'maze']]) {
+      await t.test(`winter den and faster summer transition · ${width}×${height}`, async () => {
+        const context = await browser.newContext({ viewport: { width, height }, hasTouch: width < 500, isMobile: width < 500 });
+        try {
+          const page = await createTestPage(context);
+          const errors = []; page.on('pageerror', (error) => errors.push(error.message));
+          await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+          await page.locator('#playerInput').fill('Alex');
+          await page.locator('#playersSelect').selectOption('1');
+          await page.locator('#modeSelect').selectOption(mode);
+          await page.evaluate(() => {
+            const tick = SnakeGame.prototype.tick; let first = true;
+            SnakeGame.prototype.tick = function () {
+              window.seasonGame = this;
+              if (first) { this.players[0].levelEaten = { rat: 10, rabbit: 10, frog: 9 }; this.players[0].eaten = { rat: 10, rabbit: 10, frog: 9 }; this.players[0].score = 29; this.food = { ...this.nextHead(this.players[0]), type: 'frog' }; first = false; }
+              return tick.call(this);
+            };
+          });
+          await startPlaying(page); await page.clock.runFor(600);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'level-complete');
+          assert.equal(await page.locator('#overlayTitle').textContent(), 'Winter is coming');
+          assert.equal(await page.locator('#level').textContent(), '1');
+          await page.locator('#playButton').click();
+          await page.evaluate(() => {
+            const g = window.seasonGame; const d = g.den;
+            const delta = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] }[d.side];
+            g.snake = [{ x: d.x - delta[0], y: d.y - delta[1] }];
+            g.direction = { left: 'left', right: 'right', top: 'up', bottom: 'down' }[d.side];
+          });
+          await page.clock.runFor(1700);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'level-ready');
+          assert.match(await page.locator('#overlayTag').textContent(), /SUMMER/);
+          assert.equal(await page.locator('#ratProgressText').textContent(), '0/15');
+          assert.equal(await page.locator('#score').textContent(), '30');
+          assert.equal(await page.evaluate(() => window.seasonGame.snake.length), 3);
+          assert.equal(await page.evaluate(() => window.seasonGame.interval), 200);
+          await startPlaying(page);
+          assert.equal(await page.locator('#board').getAttribute('data-season'), 'summer');
+          assert.deepEqual(errors, []);
+        } finally { await context.close(); }
+      });
+    }
     await t.test('account choice, guest co-op team names and shared team records', async () => {
       const context = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
       try {
@@ -554,15 +599,20 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         await page.locator('#breakMinutes').fill('1');
         await page.locator('#breakMinutes').press('Tab');
         await page.keyboard.press('Escape');
-        await startPlaying(page); await page.clock.runFor(40); await page.clock.fastForward(61000);
+        await startPlaying(page);
+        assert.equal(await page.locator('#gameClock').isVisible(), true);
+        assert.equal(await page.locator('#breakTime').textContent(), '01:00');
+        await page.clock.runFor(40); await page.clock.fastForward(61000);
         assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
         assert.equal(await page.locator('#overlayTitle').textContent(), 'Rest your eyes.');
+        assert.equal(await page.locator('#breakTime').textContent(), '00:00');
         await startPlaying(page); await page.clock.runFor(40); await page.clock.fastForward(31000);
         assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
         await page.clock.fastForward(31000);
         assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
         await page.locator('#settingsSummary').click();
         await page.locator('#breakToggle').uncheck();
+        assert.equal(await page.locator('#breakReadout').isVisible(), false);
         await page.keyboard.press('Escape');
         await startPlaying(page); await page.clock.runFor(40); await page.clock.fastForward(180000);
         assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');

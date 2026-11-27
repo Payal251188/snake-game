@@ -3,7 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true, combosEnabled: true, teamMode: true });
+  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true, combosEnabled: true, teamMode: true, seasonalLevels: true });
   const storageKey = 'snake-club-record-v3';
   const headerPanels = { gameSettings: 'settingsSummary', gameHelp: 'helpSummary', gameStats: 'statsSummary' };
   function closeHeaderPanels() { for (const id of Object.keys(headerPanels)) $(id).open = false; }
@@ -20,6 +20,9 @@
   const breakKey = 'snake-club-breaks-v1';
   const breakTimer = SnakeBreaks.create();
   let breakLastTime = null;
+  let breakDue = false;
+  let lastSpokenBreakSecond = null;
+  const breakVoice = SnakeVoice.create();
   const authConfig = window.SNAKE_AUTH_CONFIG || {};
   let authUser = null;
   let identityChoice = 'choose';
@@ -88,6 +91,8 @@
   let cheerFrame = null;
   let noticeRemaining = 0;
   const shieldFlashes = new Map();
+  const denAnimations = new Map();
+  let seasonTransitionRemaining = 0;
 
   function resetCheer() {
     cheerRemaining = 0;
@@ -199,6 +204,7 @@
     $('authSession').hidden = identityChoice === 'choose';
     $('playerEntry').hidden = !home || identityChoice !== 'guest';
     $('teamEntry').hidden = !home || engine.playerCount !== 2 || identityChoice === 'choose';
+    $('homeSetup').hidden = !home || identityChoice === 'choose';
     $('playButton').hidden = home && identityChoice === 'choose';
     $('signOutButton').hidden = !authUser;
     $('settingsSignOutButton').hidden = !authUser;
@@ -241,6 +247,19 @@
     if (changed && state === 'ready') focusHome();
   }
 
+  function updateGameClocks() {
+    const elapsed = SnakeRewards.timeLabel(engine.elapsedMs).padStart(5, '0');
+    const settings = breakTimer.settings;
+    const remaining = breakDue ? 0 : Math.max(0, settings.minutes * 60000 - breakTimer.continuousMs);
+    const seconds = Math.ceil(remaining / 1000);
+    const countdown = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    if ($('playTime').textContent !== elapsed) $('playTime').textContent = elapsed;
+    if ($('breakTime').textContent !== countdown) $('breakTime').textContent = countdown;
+    $('breakReadout').hidden = !settings.enabled;
+    const urgent = String(settings.enabled && seconds <= 10);
+    if ($('gameClock').dataset.urgent !== urgent) $('gameClock').dataset.urgent = urgent;
+  }
+
   function saveBreakSettings() {
     const minutes = Number($('breakMinutes').value);
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
@@ -249,7 +268,11 @@
       return;
     }
     breakTimer.configure({ enabled: $('breakToggle').checked, minutes });
+    breakDue = false;
+    lastSpokenBreakSecond = null;
+    breakVoice.cancel();
     breakLastTime = null;
+    updateGameClocks();
     $('breakOptions').hidden = !breakTimer.settings.enabled;
     $('breakMinutes').disabled = !breakTimer.settings.enabled;
     if (canSave) {
@@ -307,6 +330,8 @@
     visualTime = 0;
     noticeRemaining = 0;
     shieldFlashes.clear();
+    denAnimations.clear();
+    seasonTransitionRemaining = 0;
     $('eventNotice').hidden = true;
     sceneDirty = true;
   }
@@ -362,7 +387,7 @@
     canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
   $('modeSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused'].includes(state)) return;
+    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
     const mode = $('modeSelect').value;
     if (!Object.hasOwn(modes, mode)) return;
     engine.reset({ mode });
@@ -376,7 +401,7 @@
     announce(`${modes[mode].name} mode selected. ${modes[mode].hint}`);
   });
   $('playersSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused'].includes(state)) return;
+    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
     const selection = $('playersSelect').value;
     if (!['1', '2', 'ai'].includes(selection)) return;
     const playerCount = selection === 'ai' ? 1 : Number(selection);
@@ -391,7 +416,7 @@
     announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player team' : 'Solo'} selected. ${steeringHint()}`);
   });
   $('aiCountSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused'].includes(state)) return;
+    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
     const count = Number($('aiCountSelect').value);
     if (![2, 3].includes(count)) return;
     preferredAICount = count;
@@ -408,7 +433,7 @@
     announce(`${count} AI opponents selected.`);
   });
   $('foodSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused'].includes(state)) return;
+    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
     const foodCount = Number($('foodSelect').value);
     if (![1, 5, 10].includes(foodCount)) return;
     engine.reset({ foodCount });
@@ -426,13 +451,18 @@
   const announce = (message) => { $('announcer').textContent = message; };
   const format = (value) => String(value).padStart(2, '0');
   function updateGoldenStatus() {
+    if (engine.season !== 'summer') {
+      $('goldenStatus').dataset.active = 'false';
+      $('goldenStatus').textContent = engine.season === 'sleeping' ? '❄ Hibernating… summer is next.' : `❄ WINTER · Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the ${engine.den.side}-edge DEN.`;
+      return;
+    }
     $('goldenStatus').dataset.active = String(Boolean(engine.goldenFood));
     $('goldenStatus').textContent = engine.goldenFood
       ? `On the board! +5 points · ${Math.ceil(engine.goldenTicks * engine.interval / 1000)}s left`
       : '★ Golden food · +5';
   }
   function updateEffectStatus() {
-    const classic = engine.mode === 'classic';
+    const classic = engine.mode === 'classic' && engine.season === 'summer';
     $('mushroomStatus').hidden = !classic;
     $('mushroomRow').hidden = !classic;
     $('herbRow').hidden = !classic;
@@ -473,8 +503,8 @@
     $('teamNameBanner').textContent = engine.isTeam ? `TEAM · ${teamName}` : '';
     $('playerOneScore').hidden = !engine.isTeam;
     $('playerTwoScore').hidden = !engine.isTeam;
-    $('playerOneScore').textContent = `${engine.players[0].score} pts`;
-    $('playerTwoScore').textContent = `${engine.players[1]?.score || 0} pts`;
+    $('playerOneScore').textContent = `${engine.players[0].score} pts${engine.players[0].hibernating ? ' · RESTING' : ''}`;
+    $('playerTwoScore').textContent = `${engine.players[1]?.score || 0} pts${engine.players[1]?.hibernating ? ' · RESTING' : ''}`;
     const livingBots = engine.players.filter((player) => player.ai && player.alive).length;
     $('opponentScore').textContent = format(engine.aiCount ? livingBots : engine.players[1]?.score || 0);
     $('opponentName').textContent = engine.aiCount ? `${livingBots}/${engine.aiCount} alive` : opponentName;
@@ -505,9 +535,9 @@
     const catches = engine.totalEaten;
     for (const animal of ['rat', 'rabbit', 'frog']) {
       $(`${animal}Count`).textContent = String(catches[animal]);
-      $(`${animal}Target`).textContent = String(engine.level * 10);
+      $(`${animal}Target`).textContent = String(engine.levelTarget);
     }
-    const target = engine.level * 10;
+    const target = engine.levelTarget;
     for (const animal of ['rat', 'rabbit', 'frog']) {
       const count = Math.min(engine.progressionEaten[animal], target);
       $(`${animal}Progress`).max = target;
@@ -515,23 +545,24 @@
       $(`${animal}ProgressText`).textContent = `${count}/${target}`;
     }
     $('roundGoal').textContent = `Optional goal — ${roundGoal.description} ${engine.players.slice(0, engine.playerCount).map((player, index) => { const progress = SnakeRewards.goalProgress(player, roundGoal); return `P${index + 1}: ${progress.value}/${progress.target}${progress.complete ? ' ✓' : ''}`; }).join(' · ')}`;
-    $('levelHint').textContent = `Next level: ${target} of each animal. Human catches only; AI catches never increase the level.`;
+    $('levelHint').textContent = engine.season === 'summer' ? `This level: ${target} of each animal, caught by humans. Then find the winter den. Next level needs ${target + 5} of each.` : 'Level completed! Winter is coming. Reach the edge den to hibernate; your score will be kept.';
   }
 
   function setState(next) {
     state = next;
     sceneDirty = true;
-    const active = ['playing', 'countdown', 'paused'].includes(state);
+    const active = ['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state);
     if (state === 'playing' || state === 'countdown') {
       closeHeaderPanels();
     }
     if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
     document.querySelector('.game-shell').dataset.state = state;
+    document.querySelector('.game-shell').dataset.season = engine.season;
     $('matchStatus').textContent = {
       ready: 'READY TO GROW', countdown: 'GET READY', playing: 'ON THE MOVE', paused: 'TAKING A BREATHER',
-      over: 'GOOD GAME', won: 'BOARD COMPLETE',
+      over: 'GOOD GAME', won: 'BOARD COMPLETE', 'level-complete': 'WINTER IS COMING', 'season-transition': 'HIBERNATING', 'level-ready': 'SUMMER HAS ARRIVED',
     }[state];
-    $('overlay').hidden = state === 'playing' || state === 'countdown';
+    $('overlay').hidden = ['playing', 'countdown', 'season-transition'].includes(state);
     $('homeIntro').hidden = state !== 'ready';
     $('countdown').hidden = state !== 'countdown';
     $('playerEntry').hidden = state !== 'ready';
@@ -540,11 +571,15 @@
     previewSound = false;
     syncMusic();
     for (const id of ['modeSelect', 'playersSelect', 'aiCountSelect', 'foodSelect']) $(id).disabled = active;
-    $('pauseButton').disabled = !active;
+    $('pauseButton').disabled = !['playing', 'countdown', 'paused'].includes(state);
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
     breakTimer.reset();
     breakLastTime = null;
+    breakDue = false;
+    lastSpokenBreakSecond = null;
+    breakVoice.cancel();
+    updateGameClocks();
     syncIdentityUI();
     lastTime = null;
     countdownLastTime = null;
@@ -557,7 +592,7 @@
     $('overlayText').textContent = text;
     $('playLabel').textContent = button;
     $('spaceHint').textContent = hint;
-    (['paused', 'over', 'won'].includes(state) ? $('playButton') : $('playerInput')).focus({ preventScroll: true });
+    (['paused', 'over', 'won', 'level-complete', 'level-ready'].includes(state) ? $('playButton') : $('playerInput')).focus({ preventScroll: true });
   }
 
   // Effects are optional; failure here must never disable the music track.
@@ -839,6 +874,20 @@
       else if (!pickup && goalNotice) showNotice(goalNotice);
       if (pickup) showNotice({ mushroom: 'Controls REVERSED: left ↔ right, up ↔ down. Find a green herb!', herb: 'Controls restored. You’re back on track!', shield: 'Shield ready: one safe collision, up to 8 seconds.', slow: 'Slow motion: breathing room for 6 seconds.' }[pickup.type], pickup.type);
     }
+    for (const event of engine.lastEvents.filter((entry) => entry.type === 'den-entered')) {
+      const player = engine.players[event.playerIndex];
+      denAnimations.set(event.playerIndex, { player: { ...player, snake: previousPlayers[event.playerIndex].snake }, remaining: 1000 });
+      announce(`${nameFor(event.playerIndex)} is hibernating.${engine.playerCount === 2 && engine.season === 'winter' ? ' Guide your teammate into the den too.' : ' Summer is coming next.'}`);
+    }
+    if (result === 'level-complete') {
+      setState('level-complete');
+      canvas.setAttribute('aria-label', `Winter board. Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the den on the ${engine.den.side} edge. Normal steering controls. Avoid walls and bodies.`);
+      showOverlay(`LEVEL ${engine.level} COMPLETED`, 'Winter is coming', `${engine.levelTarget} of every animal caught! Guide ${engine.playerCount === 2 ? 'both teammates' : 'your snake'} into the DEN on the ${engine.den.side} edge to hibernate. Your score stays with you. Controls are normal; avoid the remaining hazards.`, 'FIND SHELTER', 'Summer brings a fresh three-segment snake and a higher target.');
+      announce(`Level ${engine.level} completed. Winter is coming. Find the ${engine.den.side}-edge den.`);
+    } else if (result === 'hibernated') {
+      seasonTransitionRemaining = 1100;
+      setState('season-transition');
+    }
     if (result === 'lost' || result === 'won') {
       const won = result === 'won';
       setState(won ? 'won' : 'over');
@@ -870,6 +919,24 @@
         announce(`${won ? 'You won!' : `Game over. ${lossReason}`} ${playerName} scored ${engine.score}. Best score ${best} by ${bestName || 'no one yet'}.`);
       }
     }
+  }
+
+  function playAction() {
+    if (state === 'level-complete') {
+      elapsed = 0;
+      setState('playing');
+      canvas.focus({ preventScroll: true });
+      announce(`Find the den on the ${engine.den.side} edge. ${engine.playerCount === 2 ? 'Both teammates must enter.' : 'Steer your snake inside.'}`);
+    } else if (state === 'level-ready') {
+      elapsed = -250;
+      countdownElapsed = 0;
+      pausedCountdown = false;
+      $('countdownNumber').textContent = '1';
+      $('countdownGoal').textContent = `Summer · Level ${engine.level} · Catch ${engine.levelTarget} of each animal`;
+      setState('countdown');
+      canvas.focus({ preventScroll: true });
+    } else if (state === 'paused') pause();
+    else startGame();
   }
 
   function renderRoundResults() {
@@ -973,9 +1040,18 @@
     sceneDirty = false;
     const { cell, left, top } = boardPainter.draw(ctx, {
       width, height, columns: engine.columns, rows: engine.rows, obstacles: engine.obstacles,
-      theme: backdrop, pixelRatio: canvas.width / width,
+      theme: backdrop, season: engine.season, pixelRatio: canvas.width / width,
     });
     canvas.dataset.layout = '2d';
+    canvas.dataset.season = engine.season;
+    const den = engine.den ? { x: left + (engine.den.x + 0.5) * cell, y: top + (engine.den.y + 0.5) * cell } : null;
+    if (den) {
+      ellipse(den.x, den.y, cell * 0.49, cell * 0.4, '#d8c3a2');
+      ellipse(den.x, den.y, cell * 0.42, cell * 0.34, '#806349');
+      ellipse(den.x, den.y, cell * 0.35, cell * 0.27, '#080d10');
+      ctx.fillStyle = '#f8eed1'; ctx.font = `bold ${Math.max(9, cell * 0.28)}px system-ui`; ctx.textAlign = 'center';
+      ctx.fillText('DEN', den.x, den.y + (engine.den.y === 0 ? cell * 0.95 : -cell * 0.65));
+    }
     const progress = ['playing', 'paused'].includes(state) ? Math.max(0, Math.min(1, elapsed / engine.interval)) : 1;
     const players = SnakeMotion.interpolate(previousPlayers, engine.players, progress, engine);
     const foodTime = engine.elapsedMs + Math.max(0, elapsed);
@@ -986,7 +1062,7 @@
     if (engine.goldenFood) drawGoldenFood(left + (engine.goldenFood.x + 0.5) * cell, top + (engine.goldenFood.y + 0.5) * cell, cell, visualTime);
     SnakeItemsRenderer.draw(ctx, { mushrooms: engine.mushrooms, herbs: engine.herbs, powerups: engine.powerups, left, top, cell, time: visualTime, animate: !reducedMotion });
     players.forEach((player, index) => {
-      if (!player.alive) return;
+      if (!player.alive || player.hibernating) return;
       const skin = SnakeSkins.forPlayer(index, playerSkin);
       SnakeRenderer.draw(ctx, { left, top, cell, time: visualTime, player, skin, animate: state === 'playing' && !reducedMotion });
       const x = left + (player.snake[0].x + 0.5) * cell;
@@ -1002,6 +1078,16 @@
         ctx.fillText(`${label}${player.controlsReversed ? ' ↔↕' : ''}`, x, y - cell * 0.65);
       }
     });
+    if (den) {
+      for (const [index, animation] of denAnimations) {
+        const progress = 1 - animation.remaining / 1000;
+        const player = { ...animation.player, snake: SnakeMotion.hibernate(animation.player.snake, engine.den, progress, engine) };
+        ctx.save(); ctx.globalAlpha = Math.max(0, 1 - progress * 0.8);
+        SnakeRenderer.draw(ctx, { left, top, cell, player, skin: SnakeSkins.forPlayer(index, playerSkin), time: visualTime, animate: false });
+        ctx.restore();
+      }
+      ellipse(den.x, den.y, cell * 0.35, cell * 0.27, '#080d10');
+    }
   }
 
   function resize() {
@@ -1050,7 +1136,7 @@
       const playerIndex = engine.playerCount === 2 && key.startsWith('Arrow') ? 1 : 0;
       engine.steer(directionKeys[key], playerIndex);
     }
-    if (key === ' ') { if (['ready', 'over', 'won'].includes(state)) startGame(); else pause(); }
+    if (key === ' ') { if (['ready', 'over', 'won', 'level-complete', 'level-ready'].includes(state)) playAction(); else pause(); }
     if (key === 'r') startGame();
     if (key === 'Escape' && ['playing', 'countdown'].includes(state)) pause();
   });
@@ -1060,7 +1146,7 @@
   $('opponentInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
   });
-  $('playButton').addEventListener('click', () => state === 'paused' ? pause() : startGame());
+  $('playButton').addEventListener('click', playAction);
   $('pauseButton').addEventListener('click', pause);
   $('restartButton').addEventListener('click', startGame);
   $('homeButton').addEventListener('click', goHome);
@@ -1087,7 +1173,9 @@
     $('helpSummary').focus({ preventScroll: true });
   });
   $('homeSettings').addEventListener('click', () => {
-    $('gameSettings').open = true;
+    closeHeaderPanels();
+    if (identityChoice === 'choose') { $('guestPlayButton').focus({ preventScroll: true }); return; }
+    $('homeSetup').scrollIntoView?.({ block: 'nearest' });
     $('playersSelect').focus({ preventScroll: true });
   });
   document.querySelectorAll('[data-direction]').forEach((button) => {
@@ -1132,7 +1220,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) suspendPlayback(); });
   $('soundButton').addEventListener('click', () => {
     soundOn = !soundOn;
-    if (!soundOn) previewSound = false;
+    if (!soundOn) { previewSound = false; breakVoice.cancel(); }
     syncMusic();
     if (soundOn) void unlockAudio();
   });
@@ -1155,6 +1243,7 @@
   });
   $('volumeInput').addEventListener('input', () => {
     music.volume = Number($('volumeInput').value);
+    if (music.volume === 0) breakVoice.cancel();
     updateSoundControls();
     if (soundOn && (['playing', 'countdown'].includes(state) || previewSound)) syncMusic();
   });
@@ -1166,15 +1255,39 @@
     if (state === 'playing') {
       const needsBreak = breakTimer.advance(breakLastTime === null ? 0 : Math.max(0, time - breakLastTime));
       breakLastTime = time;
+      const secondsLeft = Math.ceil(Math.max(0, breakTimer.settings.minutes * 60000 - breakTimer.continuousMs) / 1000);
+      if (!needsBreak && breakTimer.settings.enabled && secondsLeft > 0 && secondsLeft <= 10 && secondsLeft !== lastSpokenBreakSecond) {
+        lastSpokenBreakSecond = secondsLeft;
+        if (soundOn) breakVoice.speak(String(secondsLeft), music.volume);
+        if (secondsLeft === 10) announce('A rest break starts in 10 seconds.');
+      }
       if (needsBreak) {
         const minutes = breakTimer.settings.minutes;
         pause();
+        breakDue = true;
+        if (soundOn) breakVoice.speak('Time for a break. Rest your eyes.', music.volume);
         showOverlay('TIME FOR A BREAK', 'Rest your eyes.', `You played for ${minutes} uninterrupted minute${minutes === 1 ? '' : 's'}. Take a break, then resume when you are ready.`, 'RESUME', 'Your round is safely paused.');
         announce('Time for a break. The game is paused. Resume when you are ready.');
       }
     }
     const delta = lastVisualFrame === null ? 0 : Math.min(50, Math.max(0, time - lastVisualFrame));
     lastVisualFrame = time;
+    if (state === 'playing' || state === 'season-transition') {
+      for (const [index, animation] of denAnimations) {
+        animation.remaining = Math.max(0, animation.remaining - delta);
+        if (!animation.remaining) denAnimations.delete(index);
+      }
+    }
+    if (state === 'season-transition') {
+      seasonTransitionRemaining = Math.max(0, seasonTransitionRemaining - delta);
+      if (!seasonTransitionRemaining && engine.startNextLevel()) {
+        resetPresentation();
+        updateMode(); updateScores();
+        setState('level-ready');
+        showOverlay('SUMMER HAS ARRIVED', `Level ${engine.level} · Summer`, `Your score is safe and your snake is short again. Catch ${engine.levelTarget} rats, ${engine.levelTarget} rabbits, and ${engine.levelTarget} frogs this level. Speed: ${engine.speedMultiplier.toFixed(1)}×.`, 'START THIS LEVEL', 'Each new level needs 5 more of each animal.');
+        announce(`Summer has arrived. Level ${engine.level}. Three segments, ${engine.speedMultiplier.toFixed(1)} times speed. Catch ${engine.levelTarget} of each animal.`);
+      }
+    }
     if (state === 'playing') {
       if (!reducedMotion) visualTime += delta;
       noticeRemaining = Math.max(0, noticeRemaining - delta);
@@ -1209,7 +1322,8 @@
         advance();
       }
     }
-    if (state === 'playing' || sceneDirty) draw();
+    updateGameClocks();
+    if (state === 'playing' || state === 'season-transition' || sceneDirty) draw();
     requestAnimationFrame(frame);
   }
   const authClient = SnakeAuth.create({ config: authConfig, onChange: handleAuth });

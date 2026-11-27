@@ -52,7 +52,25 @@
     };
   }
 
-  const SnakeMotion = Object.freeze({ capture, interpolate, foodPosition });
+  function hibernate(snake, den, amount, { columns, rows, wraps }) {
+    const progress = clamp(amount);
+    const travel = progress * (snake.length + 1);
+    const path = [{ x: den.x, y: den.y }, ...snake];
+    const blend = (from, to, fraction, size) => {
+      let delta = to - from;
+      if (wraps && Math.abs(delta) > size / 2) delta -= Math.sign(delta) * size;
+      const value = from + delta * fraction;
+      return wraps ? (value % size + size) % size : value;
+    };
+    return snake.map((_, index) => {
+      const position = Math.max(0, index + 1 - travel);
+      const a = path[Math.floor(position)] || path.at(-1);
+      const b = path[Math.min(path.length - 1, Math.ceil(position))] || a;
+      return { x: blend(a.x, b.x, position % 1, columns), y: blend(a.y, b.y, position % 1, rows) };
+    });
+  }
+
+  const SnakeMotion = Object.freeze({ capture, interpolate, foodPosition, hibernate });
   if (typeof module !== 'undefined' && module.exports) module.exports = { SnakeMotion };
   else root.SnakeMotion = SnakeMotion;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

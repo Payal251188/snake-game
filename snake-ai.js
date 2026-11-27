@@ -55,7 +55,7 @@
 
   function chooseDirection(game, playerIndex, reserved = new Set()) {
     const player = game.players[playerIndex];
-    if (!player || !player.alive || game.status !== 'playing') return null;
+    if (!player || !player.alive || player.hibernating || game.status !== 'playing' || game.season === 'winter') return null;
     const ordinaryFood = [...game.foods, game.goldenFood].filter(Boolean);
     const profile = personality(game, playerIndex);
     const needsCure = player.controlsReversed && game.herbs.length > 0;
@@ -100,7 +100,7 @@
     if (game.status !== 'playing') return;
     const reserved = new Set();
     game.players.forEach((player, index) => {
-      if (!player.ai || !player.alive) return;
+      if (!player.ai || !player.alive || player.hibernating) return;
       const direction = chooseDirection(game, index, reserved);
       // AI chooses physical directions, compensating for inversion just as a human can.
       game.turn(direction, index);

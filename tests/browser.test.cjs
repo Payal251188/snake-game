@@ -13,10 +13,11 @@ const { SnakeRewards } = require('../snake-rewards.js');
 const { SnakeBoard } = require('../snake-board.js');
 const { SnakeAuth } = require('../snake-auth.js');
 const { SnakeBreaks } = require('../snake-breaks.js');
+const { SnakeVoice } = require('../snake-voice.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
 // Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
-function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer, autoCountdown = true, autoGuest = true, authModule = SnakeAuth, authConfig = {} } = {}) {
+function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer, autoCountdown = true, autoGuest = true, authModule = SnakeAuth, authConfig = {}, voiceModule = SnakeVoice } = {}) {
   const elements = new Map();
   const noop = () => {};
   const openedWindows = [];
@@ -110,6 +111,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     SnakeRewards,
     SnakeAuth: authModule,
     SnakeBreaks,
+    SnakeVoice: voiceModule,
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
     window: { SNAKE_AUTH_CONFIG: authConfig, open: (...args) => { openedWindows.push(args); return { opener: null }; }, AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => motionQuery, devicePixelRatio: 1,
@@ -228,6 +230,31 @@ test('break auto-pause is configurable, repeats only after resuming, and stays s
   const restored = load({ storage: g.storage });
   assert.equal(restored.element('breakToggle').checked, false);
   assert.equal(restored.element('breakMinutes').value, '1');
+});
+
+test('digital break clock counts down in sync, speaks the last ten seconds once and stops when muted', () => {
+  const spoken = [];
+  const voiceModule = { create: () => ({ speak: (text) => spoken.push(text), cancel() {} }) };
+  const g = load({ voiceModule });
+  g.element('breakToggle').checked = true;
+  g.element('breakMinutes').value = '1'; g.element('breakToggle').listeners.change();
+  g.click('playButton'); g.frame(0);
+  assert.equal(g.element('breakTime').textContent, '01:00');
+  assert.equal(g.element('breakReadout').hidden, false);
+  g.frame(50000); g.frame(50100);
+  assert.equal(g.element('breakTime').textContent, '00:10');
+  assert.equal(g.element('gameClock').dataset.urgent, 'true');
+  for (let time = 51000; time <= 59000; time += 1000) g.frame(time);
+  assert.deepEqual(spoken, ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1']);
+  g.frame(60000);
+  assert.equal(g.state(), 'paused');
+  assert.equal(g.element('breakTime').textContent, '00:00');
+  assert.match(spoken.at(-1), /Time for a break/);
+  g.click('soundButton'); g.click('playButton'); g.frame(61000); g.frame(111000);
+  assert.equal(spoken.length, 11);
+  g.click('pauseButton');
+  g.element('breakToggle').checked = false; g.element('breakToggle').listeners.change();
+  assert.equal(g.element('breakReadout').hidden, true);
 });
 
 test('golden food credits five points to its eater, updates records and keeps animal counts separate', () => {
@@ -772,7 +799,7 @@ test('home offers the selected map/play type, opens setup, and safely cancels a 
   assert.equal(g.element('homeIntro').hidden, false);
   assert.equal(g.element('homeSummary').textContent, 'Obstacles · Solo');
   g.click('homeSettings');
-  assert.equal(g.element('gameSettings').open, true);
+  assert.equal(g.element('gameSettings').open, false);
   assert.equal(g.focus(), 'playersSelect');
   selectRecordCategory(g, 'classic', 'ai');
   assert.equal(g.element('homeSummary').textContent, 'Classic · AI Arena');
@@ -1372,6 +1399,7 @@ test('How to play reports the actual selected category, level and slow-motion-ad
   const g = load();
   assert.match(g.element('helpCurrent').textContent, /Obstacles · Solo.*Level 1, 1.0×, 240 ms/);
   g.click('playButton');
+  g.engine.currentLevel = 2;
   g.engine.eaten = { rat: 10, rabbit: 10, frog: 10 };
   g.engine.slowUntil = 6000;
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
@@ -1387,16 +1415,17 @@ test('guide speed examples and item durations match the engine rules', () => {
   assert.match(guide, /left ↔ right and up ↔ down/);
   assert.match(guide, /Mushroom — Classic only/);
   assert.match(guide, /AI catches, special items, and score bonuses never increase the level/);
-  const g = new SnakeGame();
+  const g = new SnakeGame({ seasonalLevels: true });
   for (let level = 1; level <= 5; level++) {
     const total = (level - 1) * 10;
+    g.currentLevel = level;
     g.eaten = { rat: total, rabbit: total, frog: total };
     const row = guide.match(new RegExp('<tr><th scope="row">' + level + '</th><td>[^<]+</td><td>([^<]+)</td><td>≈?(\\d+) ms</td></tr>'));
     assert.ok(row, 'documented speed row exists for level ' + level);
     assert.equal(row[1], g.speedMultiplier.toFixed(1) + '×');
     assert.equal(Number(row[2]), Math.round(g.interval));
   }
-  g.eaten = { rat: 1000, rabbit: 1000, frog: 1000 };
+  g.currentLevel = 101;
   assert.equal(g.interval, 40);
 });
 
@@ -1676,29 +1705,36 @@ test('effects follow volume and stay silent when muted or volume is zero', () =>
   }
 });
 
-test('catch table, level, speed and next targets update together and reset on replay', () => {
-  const g = load();
-  assert.equal(g.element('ratCount').textContent, '0');
-  assert.equal(g.element('level').textContent, '1');
-  g.click('playButton');
-  // The next frog completes the first set of 10 of each animal.
+test('winter shelter starts a faster summer with five more animals per target and preserved scores', () => {
+  const g = load(); g.click('playButton');
   g.engine.score = 29;
   g.engine.eaten = { rat: 10, rabbit: 10, frog: 9 };
+  g.engine.players[0].levelEaten = { rat: 10, rabbit: 10, frog: 9 };
   eat(g);
-  for (const animal of ['rat', 'rabbit', 'frog']) {
-    assert.equal(g.element(`${animal}Count`).textContent, '10');
-    assert.equal(g.element(`${animal}Target`).textContent, '20');
-  }
-  assert.equal(g.element('totalEaten').textContent, '30');
-  assert.equal(g.element('level').textContent, '2');
+  assert.equal(g.state(), 'level-complete');
+  assert.equal(g.engine.level, 1);
+  assert.match(g.element('overlayTitle').textContent, /Winter is coming/);
+  assert.equal(g.element('frogProgressText').textContent, '10/10');
+  g.click('playButton');
+  const den = g.engine.den;
+  const delta = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] }[den.side];
+  g.engine.snake = [{ x: den.x - delta[0], y: den.y - delta[1] }];
+  g.engine.direction = { left: 'left', right: 'right', top: 'up', bottom: 'down' }[den.side];
+  g.frame(1000); g.frame(1200); g.frame(1400);
+  assert.equal(g.state(), 'season-transition');
+  for (let time = 1450; time <= 2600; time += 50) g.frame(time);
+  assert.equal(g.state(), 'level-ready');
+  assert.equal(g.engine.level, 2);
+  assert.equal(g.engine.snake.length, 3);
+  assert.equal(g.engine.score, 30);
+  assert.equal(g.element('frogProgressText').textContent, '0/15');
   assert.equal(g.element('levelSpeed').textContent, '1.2×');
-  assert.equal(g.element('pace').textContent, '1.2×');
-  assert.match(g.element('announcer').textContent, /Level 2/);
+  assert.match(g.element('overlayTag').textContent, /SUMMER/);
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
   g.click('restartButton');
-  assert.equal(g.element('frogCount').textContent, '0');
-  assert.equal(g.element('totalEaten').textContent, '0');
-  assert.equal(g.element('level').textContent, '1');
-  assert.equal(g.element('levelSpeed').textContent, '1.0×');
+  assert.equal(g.engine.level, 1);
+  assert.equal(g.engine.score, 0);
   assert.equal(g.element('frogTarget').textContent, '10');
 });
 

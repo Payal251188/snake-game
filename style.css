@@ -356,4 +356,26 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
   .header:has(#inviteFriendsButton:not([hidden])) .header-tools { width:100%; justify-content:space-between; }
   .settings-panel { max-height:calc(100dvh - var(--header-height,46px) - 30px); }
 }
+.home-setup { margin:10px 0 14px; }
+.home-setup[hidden] { display:none; }
+.home-setup .mode-controls { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:5px 12px; }
+.home-setup label[for='playersSelect'] { grid-area:1 / 1; }
+.home-setup #playersSelect { grid-area:2 / 1; }
+.home-setup label[for='modeSelect'] { grid-area:1 / 2; }
+.home-setup #modeSelect { grid-area:2 / 2; }
+.home-setup label { color:var(--mint); }
+.home-setup .mode-controls select { background:#172f36; color:#f0f5e7; border-color:#6c9a89; }
+.home-setup .settings-help { margin:7px 0 0; color:#aec7ba; font-size:10px; }
+.game-shell[data-season='winter'] .golden-notice,.game-shell[data-season='sleeping'] .golden-notice { background:#283f50; color:#e3f3f6; }
+@media (max-width:599px), (max-height:700px) { .home-setup .settings-help { display:none; } }
+@media (max-height:700px) {
+  .game-shell:is([data-state='level-complete'],[data-state='level-ready']) .overlay { position:fixed; inset:52px 8px 8px; }
+}
+.game-clock { display:inline-flex; align-items:center; gap:12px; padding:5px 9px; border:1px solid #783b38; border-radius:6px; background:#06080b; }
+.clock-part { display:flex; align-items:center; gap:6px; }
+.clock-part[hidden] { display:none; }
+.game-clock .clock-caption { color:#efb0a8; font-size:8px; letter-spacing:.7px; }
+.game-clock strong { margin:0; color:#ff5549; font:800 17px/1.1 ui-monospace,monospace; font-variant-numeric:tabular-nums; letter-spacing:1px; }
+.game-clock[data-urgent='true'] { border-color:#ff5549; box-shadow:inset 0 0 0 1px #ff5549; }
+@media (max-width:760px) { .game-clock { gap:8px; padding:4px 7px; } .game-clock strong { font-size:15px; } .game-clock .clock-caption { font-size:7px; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
