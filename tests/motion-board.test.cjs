@@ -107,6 +107,16 @@ test('all simple backdrops render without gameplay randomness or an offscreen ca
   assert.equal(SnakeBoard.resolve('__proto__'), 'night');
 });
 
+test('summer uses a cached golden-yellow floor and sunshine while winter keeps its blue palette', () => {
+  for(const season of ['summer','winter','sleeping']){
+    const {ctx,calls}=recording();
+    SnakeBoard.createPainter(()=>null).draw(ctx,{width:800,height:500,columns:24,rows:20,obstacles:[],theme:'night',season});
+    const fills=calls.filter(c=>Array.isArray(c)&&c[0]==='set'&&c[1]==='fillStyle').map(c=>c[2]);
+    assert.ok(fills.includes(season==='summer'?'#f2d98b':'#29414c'));
+    assert.equal(fills.includes('#fff7c8'),season==='summer','only summer paints sunshine');
+  }
+});
+
 test('orbital arena assets and controls are completely removed', () => {
   const root = join(__dirname, '..');
   const html = readFileSync(join(root, 'index.html'), 'utf8');

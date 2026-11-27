@@ -5,21 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — Play, grow, enjoy.</title>
-  <link rel="stylesheet" href="style.css?v=clock1">
+  <link rel="stylesheet" href="style.css?v=chart-sun1">
   <script src="snake-engine.js?v=winter2" defer></script>
   <script src="snake-ai.js?v=seasons1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
   <script src="snake-renderer.js?v=winter2-polish1" defer></script>
   <script src="snake-items-renderer.js?v=simple1" defer></script>
   <script src="snake-motion.js?v=winter2" defer></script>
-  <script src="snake-board.js?v=winter2" defer></script>
+  <script src="snake-board.js?v=chart-sun1" defer></script>
   <script src="snake-rewards.js?v=polish1" defer></script>
   <script src="auth-config.js?v=accounts1" defer></script>
   <script src="snake-auth.js?v=accounts1" defer></script>
   <script src="snake-breaks.js?v=accounts1" defer></script>
   <script src="snake-voice.js?v=clock1" defer></script>
   <script src="snake-winter.js?v=winter2" defer></script>
-  <script src="game.js?v=winter2" defer></script>
+  <script src="game.js?v=chart-sun1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -42,7 +42,7 @@
                 <canvas class="skin-preview" id="skinPreview" width="720" height="160" role="img" aria-label="Classic Olive snake preview">Snake skin preview.</canvas>
                 <p class="settings-help" id="skinDescription" role="status">Applies to Player 1 only.</p>
                 <label for="backdropSelect">Backdrop</label>
-                <select id="backdropSelect"><option value="night" selected>Nightfall</option><option value="meadow">Meadow</option><option value="sunset">Sunset</option></select>
+                <select id="backdropSelect"><option value="night" selected>Golden glow</option><option value="meadow">Sunny meadow</option><option value="sunset">Amber sunset</option></select>
               </section>
             </details>
             <details class="more-options">
@@ -147,7 +147,7 @@
           <div class="settings-panel stats-panel" role="region" aria-label="Round statistics">
             <section class="hunt-stats" aria-labelledby="huntTitle">
               <div class="hunt-heading"><h2 id="huntTitle">Level progress</h2><span>LEVEL <strong id="level">1</strong> · <strong id="levelSpeed">1.0×</strong></span></div>
-              <p class="settings-help">Level 1 needs 10 of each animal; later levels need 5 more each. Only human catches count.</p>
+              <p class="settings-help">Level 1 needs 10 of each animal; later levels need 5 more each. Only human catches count. The bold on-screen catch chart shows eaten, required and pending for this level; extra catches never make pending negative. A “Hurray!” cheer plays once when every target is met, unless sound is muted.</p>
               <div class="level-progress">
                 <label>Rat <span id="ratProgressText">0/10</span><progress id="ratProgress" max="10" value="0"></progress></label>
                 <label>Rabbit <span id="rabbitProgressText">0/10</span><progress id="rabbitProgress" max="10" value="0"></progress></label>
@@ -183,6 +183,7 @@
     </header>
     <audio id="music" src="assets/snake-groove.mp3" preload="auto" loop playsinline></audio>
     <audio id="chomp" src="assets/chomp.wav" preload="auto" playsinline></audio>
+    <audio id="hurray" src="assets/hurray.wav" preload="auto" playsinline></audio>
     <section class="game-shell" data-state="ready" data-mode="obstacles" data-players="2" aria-label="Snake arcade">
       <div class="scoreboard">
         <div class="score-group"><span class="score-label"><i class="dot"></i><span id="scoreLabel">P1 SCORE</span></span><span class="score-value" id="score">00</span></div>
@@ -193,6 +194,18 @@
       </div>
       <div class="player-strip"><span class="team-banner" id="teamNameBanner" hidden></span><span class="player-identity"><img class="player-avatar" id="playerAvatar" src="assets/avatar-mint.svg" data-avatar="mint" alt="Mint human face avatar" hidden><strong id="playerName">—</strong><span class="member-score" id="playerOneScore" hidden></span></span><span id="opponentIdentity"><span id="opponentControlsLabel">P2 · ARROWS</span> <strong id="opponentName">Player 2</strong><span class="member-score" id="playerTwoScore" hidden></span></span><span>LEVEL <strong id="arenaLevel">1</strong></span><span class="game-clock" id="gameClock" aria-label="Game timers"><span class="clock-part"><span class="clock-caption">PLAY TIME</span><strong id="playTime">00:00</strong></span><span class="clock-part" id="breakReadout" hidden><span class="clock-caption">BREAK IN</span><strong id="breakTime">02:00</strong></span></span></div>
       <div class="golden-notice"><span id="goldenStatus" data-active="false">★ Golden food · +5</span><span class="mushroom-status" id="mushroomStatus" hidden>🍄 0 · +50</span><span class="control-status" id="controlStatus" data-reversed="false" hidden></span><span class="powerup-status" id="powerupStatus" hidden></span><span class="combo-status" id="comboStatus" title="Catch an animal within 12 active seconds. Every third catch earns +1 bonus." hidden></span></div>
+      <div class="play-area">
+        <section class="level-chart" id="levelChart" aria-label="Current level animal catch chart">
+          <table>
+            <caption><strong id="chartTitle">LEVEL 1 · CATCH CHART</strong><span id="chartStatus">YOUR CATCHES</span></caption>
+            <thead><tr><th scope="col">Animal</th><th scope="col">Eaten</th><th scope="col">Required</th><th scope="col">Pending</th></tr></thead>
+            <tbody>
+              <tr id="ratChartRow"><th scope="row"><span aria-hidden="true">🐀 </span>Rat</th><td id="ratLevelEaten">0</td><td id="ratLevelRequired">10</td><td id="ratLevelPending">10</td></tr>
+              <tr id="rabbitChartRow"><th scope="row"><span aria-hidden="true">🐇 </span>Rabbit</th><td id="rabbitLevelEaten">0</td><td id="rabbitLevelRequired">10</td><td id="rabbitLevelPending">10</td></tr>
+              <tr id="frogChartRow"><th scope="row"><span aria-hidden="true">🐸 </span>Frog</th><td id="frogLevelEaten">0</td><td id="frogLevelRequired">10</td><td id="frogLevelPending">10</td></tr>
+            </tbody>
+          </table>
+        </section>
       <div class="board-wrap" id="boardWrap">
         <canvas id="board" width="720" height="600" tabindex="0" aria-label="Snake board. Steer with WASD or arrow keys. Space pauses.">Your browser needs Canvas support to play Snake.</canvas>
         <div class="overlay" id="overlay"><div class="overlay-content">
@@ -255,6 +268,7 @@
         </div></div>
         <div class="event-notice" id="eventNotice" aria-hidden="true" hidden></div>
         <div class="countdown" id="countdown" role="status" aria-live="polite" aria-atomic="true" hidden><span class="countdown-caption">GET READY</span><strong id="countdownNumber">1</strong><span class="countdown-caption" id="countdownGoal">Your next adventure starts here</span></div>
+      </div>
       </div>
       <div class="game-footer">
         <span class="speed-label">PACE <strong id="pace">1.0×</strong></span>

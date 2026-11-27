@@ -2,9 +2,9 @@
 (function (root) {
   'use strict';
   const themes = Object.freeze({
-    night: Object.freeze({ name: 'Nightfall', top: '#101e29', bottom: '#203846', floor: '#152e37', grid: '#b9dcd514', edge: '#8cbfb85c' }),
-    meadow: Object.freeze({ name: 'Meadow', top: '#122922', bottom: '#284b39', floor: '#203c30', grid: '#c0e4bd17', edge: '#a6cc9e66' }),
-    sunset: Object.freeze({ name: 'Sunset', top: '#2c2333', bottom: '#584049', floor: '#3c2d3c', grid: '#f4d7c318', edge: '#d1aaa766' }),
+    night: Object.freeze({ name: 'Golden glow', top: '#ffe57b', bottom: '#d6a94a', floor: '#f2d98b', grid: '#785a2b2c', edge: '#fff2b3' }),
+    meadow: Object.freeze({ name: 'Sunny meadow', top: '#f5e58d', bottom: '#a8b96b', floor: '#e6dc99', grid: '#66733a2c', edge: '#fff5c6' }),
+    sunset: Object.freeze({ name: 'Amber sunset', top: '#ffdf86', bottom: '#d39b57', floor: '#efd09a', grid: '#9367352c', edge: '#ffe9ac' }),
   });
   const resolve = (name) => Object.hasOwn(themes, name) ? name : 'night';
   function layout(width, height, columns, rows) {
@@ -26,14 +26,27 @@
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
   }
   function paint(ctx, { width, height, columns, rows, obstacles, theme, season }, frame) {
-    const colors = season === 'winter' || season === 'sleeping'
+    const winter = season === 'winter' || season === 'sleeping';
+    const colors = winter
       ? { top: '#192c3b', bottom: '#395563', floor: '#29414c', grid: '#d8eff326', edge: '#d9edf088' } : themes[resolve(theme)];
     const sky = ctx.createLinearGradient(0, 0, width, height);
     sky.addColorStop(0, colors.top); sky.addColorStop(1, colors.bottom);
     ctx.fillStyle = sky; ctx.fillRect(0, 0, width, height);
     const { left, top, cell } = frame;
     const w = columns * cell; const h = rows * cell;
+    if (!winter) {
+      const sunX=width*.86, sunY=Math.max(24,top*.45), radius=Math.min(32,cell*1.2);
+      for (const [scale,color] of [[2.4,'#fff2b32b'],[1.7,'#fff4bf55'],[1,'#fff7c8']]) {
+        ctx.fillStyle=color; ctx.beginPath(); ctx.arc(sunX,sunY,radius*scale,0,Math.PI*2); ctx.fill();
+      }
+    }
     rounded(ctx, left, top, w, h, 4, colors.floor);
+    if (!winter) {
+      const shine=ctx.createLinearGradient(left,top,left+w,top+h);
+      shine.addColorStop(0,'#fffbe674'); shine.addColorStop(.35,'#ffffff09');
+      shine.addColorStop(.54,'#fff9d75c'); shine.addColorStop(1,'#b9802624');
+      ctx.fillStyle=shine; ctx.fillRect(left,top,w,h);
+    }
     ctx.strokeStyle = colors.grid; ctx.lineWidth = 0.7; ctx.beginPath();
     for (let x = 1; x < columns; x++) { ctx.moveTo(left + x * cell, top); ctx.lineTo(left + x * cell, top + h); }
     for (let y = 1; y < rows; y++) { ctx.moveTo(left, top + y * cell); ctx.lineTo(left + w, top + y * cell); }

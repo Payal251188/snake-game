@@ -60,6 +60,11 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     play() { this.plays++; this.paused = false; return Promise.resolve(); },
     pause() { this.paused = true; },
   });
+  Object.assign(element('hurray'), {
+    paused: true, muted: true, currentTime: 0, plays: 0, audiblePlays: 0,
+    play() { this.plays++; if (!this.muted && this.volume > 0) this.audiblePlays++; this.paused = false; return Promise.resolve(); },
+    pause() { this.paused = true; },
+  });
   const events = {};
   const documentEvents = {};
   let motionListener;
@@ -1704,6 +1709,54 @@ test('effects follow volume and stay silent when muted or volume is zero', () =>
     assert.equal(g.state(), 'over');
     assert.equal(g.audioStats.notes, 0);
     assert.equal(g.element('chomp').plays, 1); // No audible playback after priming.
+  }
+});
+
+test('visible catch chart updates on a real catch and shows excess catches without negative pending', () => {
+  const g=load();g.click('playButton');eat(g);
+  assert.equal(g.element('ratLevelEaten').textContent,'1');
+  assert.equal(g.element('ratLevelRequired').textContent,'10');
+  assert.equal(g.element('ratLevelPending').textContent,'9');
+  g.engine.players[0].levelEaten={rat:14,rabbit:4,frog:2};
+  g.engine.food={x:20,y:18,type:'rat'};
+  for(const time of [2000,2400,2800])g.frame(time);
+  assert.equal(g.element('ratLevelEaten').textContent,'14');
+  assert.equal(g.element('ratLevelPending').textContent,'0');
+  assert.equal(g.element('ratChartRow').dataset.complete,'true');
+  assert.equal(g.element('rabbitLevelPending').textContent,'6');
+  assert.equal(g.element('frogLevelPending').textContent,'8');
+});
+
+test('chart aggregates co-op humans, excludes AI and never counts score bonuses', () => {
+  for(const ai of [false,true]){
+    const g=load({playerCount:ai?1:2});g.click('playButton');
+    if(ai)g.engine.reset({playerCount:1,aiCount:1});
+    g.engine.players[0].levelEaten={rat:2,rabbit:1,frog:3};
+    g.engine.players[1].levelEaten={rat:5,rabbit:6,frog:4};
+    g.engine.players[0].score=999;
+    g.engine.food={x:20,y:18,type:'rat'};
+    for(const time of [2000,2400,2800])g.frame(time);
+    assert.equal(g.element('ratLevelEaten').textContent,ai?'2':'7');
+    assert.equal(g.element('rabbitLevelPending').textContent,ai?'9':'3');
+    assert.equal(g.element('frogLevelPending').textContent,ai?'7':'3');
+  }
+});
+
+test('level completion plays one offline Hurray cheer, respects mute/zero volume and survives playback failure', async () => {
+  for(const setting of ['on','muted','zero','failed']){
+    const g=load();g.click('playButton');
+    if(setting==='muted')g.click('soundButton');
+    if(setting==='zero'){g.element('volumeInput').value='0';g.element('volumeInput').listeners.input();}
+    if(setting==='failed')g.element('hurray').play=()=>{throw Error('Blocked');};
+    g.engine.eaten={rat:10,rabbit:10,frog:9};g.engine.players[0].levelEaten={rat:10,rabbit:10,frog:9};eat(g);
+    await Promise.resolve();
+    assert.equal(g.state(),'level-complete');
+    assert.equal(g.element('chartStatus').textContent,'HURRAY! ALL DONE');
+    assert.equal(g.element('frogLevelPending').textContent,'0');
+    assert.equal(g.element('hurray').audiblePlays,setting==='on'?1:0);
+    g.frame(2000);g.frame(4000);
+    assert.equal(g.element('hurray').audiblePlays,setting==='on'?1:0,'redrawing does not repeat the cheer');
+    g.click('homeButton');assert.equal(g.element('hurray').paused,true);
   }
 });
 

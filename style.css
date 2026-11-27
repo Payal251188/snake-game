@@ -99,7 +99,45 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
 .control-status,.powerup-status { padding:2px 5px; border-radius:4px; border:1px solid #bb8e65; background:#56352b; color:#fff0d5; font-weight:600; }
 .powerup-status { border-color:#80b4c8; background:#203c50; color:#d9f6ff; }
 .control-status[hidden],.powerup-status[hidden] { display:none; }
-.board-wrap { position:relative; flex:1; min-height:0; background:var(--court); overflow:hidden; }
+.play-area { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.level-chart { flex-shrink:0; padding:5px 12px 6px; background:#172e32; color:#eef5df; border-bottom:1px solid #477067; }
+.level-chart table { width:100%; border-collapse:collapse; font-weight:800; font-variant-numeric:tabular-nums; }
+.level-chart caption { padding:0 0 3px; text-align:left; font-size:10px; line-height:1.4; }
+.level-chart caption strong { color:#e4f5cd; }
+.level-chart caption span { float:right; color:#b4cec2; font-size:8px; }
+.level-chart th,.level-chart td { padding:2px 5px; border-bottom:1px solid #ffffff10; text-align:center; line-height:1.1; }
+.level-chart thead th { color:#c4d8cc; font-size:9px; text-transform:uppercase; }
+.level-chart th:first-child { text-align:left; }
+.level-chart tbody th { color:#edf3dc; font-size:11px; }
+.level-chart td { font:800 15px/1.1 ui-monospace,monospace; }
+.level-chart td:nth-child(2) { color:#c2f3c8; }
+.level-chart td:nth-child(3) { color:#e4e9df; }
+.level-chart td:last-child { color:#ffd08e; }
+.level-chart tr[data-complete='true'] { background:#28513f; }
+.level-chart tr[data-complete='true'] th::after { content:' ✓'; color:#c2f3c8; }
+.level-chart[data-complete='true'] #chartStatus { color:#ffe18d; font-weight:900; }
+.game-shell[data-state='ready'] .level-chart { display:none; }
+@media (max-width:760px) {
+  .level-chart { padding:3px 8px; }
+  .level-chart caption { line-height:1.2; padding-bottom:2px; }
+  .level-chart th,.level-chart td { padding:1px 4px; }
+  .level-chart thead th { font-size:8px; }
+}
+@media (min-width:900px), (min-width:600px) and (max-height:500px) {
+  .play-area { flex-direction:row; }
+  .level-chart { order:1; width:230px; padding:14px 10px; border-bottom:0; border-left:1px solid #477067; }
+  .level-chart caption span { display:block; float:none; margin-top:5px; }
+  .level-chart caption { padding-bottom:10px; }
+  .level-chart th,.level-chart td { padding:7px 3px; }
+  .level-chart td { font-size:19px; }
+  .game-shell[data-state='ready'] .board-wrap { width:100%; }
+}
+@media (min-width:600px) and (max-height:500px) {
+  .level-chart { width:190px; padding:6px 8px; }
+  .level-chart th,.level-chart td { padding:3px 2px; }
+  .level-chart td { font-size:15px; }
+}
+.board-wrap { position:relative; min-width:0; flex:1; min-height:0; background:var(--court); overflow:hidden; }
 #board { display:block; width:100%; height:100%; touch-action:none; }
 .overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:10px; background:#101e2555; text-align:center; z-index:2; }
 .overlay[hidden] { display:none; }
@@ -214,7 +252,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
   .avatar-settings { grid-column:1 / -1; }
 }
 /* Home is a dedicated landing screen, not a form floating over a running board. */
-.game-shell[data-state='ready'] > :not(.board-wrap) { display:none; }
+.game-shell[data-state='ready'] > :not(.play-area) { display:none; }
 .app:has(.game-shell[data-state='ready']) .touch-area { display:none; }
 .game-shell[data-state='ready'] { border-color:#bbcbb5; background:#e5ecdf; }
 .game-shell[data-state='ready'] .board-wrap { background:linear-gradient(135deg,#eaf0e1,#d7e7d5); }

@@ -83,6 +83,9 @@
   let effectsGain = null;
   const music = $('music');
   const chomp = $('chomp');
+  const hurray = $('hurray');
+  let hurrayRequest = 0;
+  let hurrayPriming = false;
   let chompRequest = 0;
   let chompPriming = false;
   music.volume = 0.75;
@@ -541,8 +544,18 @@
       $(`${animal}Target`).textContent = String(engine.levelTarget);
     }
     const target = engine.levelTarget;
+    const levelEaten = engine.progressionEaten;
+    const complete = ['rat', 'rabbit', 'frog'].every((animal) => levelEaten[animal] >= target);
+    $('chartTitle').textContent = `LEVEL ${engine.level} · CATCH CHART`;
+    $('chartStatus').textContent = complete ? 'HURRAY! ALL DONE' : engine.isTeam ? 'TEAM CATCHES' : 'YOUR CATCHES';
+    $('levelChart').dataset.complete = String(complete);
     for (const animal of ['rat', 'rabbit', 'frog']) {
-      const count = Math.min(engine.progressionEaten[animal], target);
+      const eaten = levelEaten[animal];
+      $(`${animal}LevelEaten`).textContent = String(eaten);
+      $(`${animal}LevelRequired`).textContent = String(target);
+      $(`${animal}LevelPending`).textContent = String(Math.max(0, target - eaten));
+      $(`${animal}ChartRow`).dataset.complete = String(eaten >= target);
+      const count = Math.min(eaten, target);
       $(`${animal}Progress`).max = target;
       $(`${animal}Progress`).value = count;
       $(`${animal}ProgressText`).textContent = `${count}/${target}`;
@@ -601,6 +614,16 @@
   // Effects are optional; failure here must never disable the music track.
   async function unlockAudio() {
     if (!soundOn) return;
+    // Prime the cheer too: Safari needs media unlocked during a user gesture.
+    const cheerRequest = ++hurrayRequest;
+    hurrayPriming = true;
+    hurray.muted = true;
+    try {
+      Promise.resolve(hurray.play()).then(() => {
+        if (cheerRequest !== hurrayRequest) return;
+        hurray.pause(); hurray.currentTime = 0; hurrayPriming = false;
+      }).catch(() => { if (cheerRequest === hurrayRequest) hurrayPriming = false; });
+    } catch { hurrayPriming = false; /* A blocked cheer never interrupts the game. */ }
     // Prime native playback during the user gesture, even without Web Audio.
     const request = ++chompRequest;
     chompPriming = true;
@@ -630,6 +653,8 @@
   function updateSoundControls() {
     chomp.volume = music.volume;
     chomp.muted = !soundOn || chompPriming;
+    hurray.volume = music.volume;
+    if (!soundOn || music.volume === 0 || (state !== 'level-complete' && !(hurrayPriming && ['playing', 'countdown'].includes(state)))) stopHurray();
     if (effectsGain) effectsGain.gain.setValueAtTime(soundOn ? music.volume : 0, audio.currentTime);
     $('soundButton').setAttribute('aria-pressed', String(soundOn));
     $('soundButton').setAttribute('aria-label', soundOn ? 'Mute music and sound' : 'Enable music and sound');
@@ -700,6 +725,20 @@
       chomp.currentTime = 0;
       Promise.resolve(chomp.play()).catch(failed);
     } catch { failed(); }
+  }
+
+  function stopHurray() {
+    ++hurrayRequest;
+    hurrayPriming = false;
+    hurray.pause(); hurray.currentTime = 0; hurray.muted = true;
+  }
+
+  function playHurray() {
+    if (!soundOn || music.volume === 0) return;
+    ++hurrayRequest;
+    hurrayPriming = false;
+    hurray.currentTime = 0; hurray.muted = false; hurray.volume = music.volume;
+    try { Promise.resolve(hurray.play()).catch(() => {}); } catch { /* Keep the visual celebration. */ }
   }
 
   function playGameOver() {
@@ -887,6 +926,7 @@
     }
     if (result === 'level-complete') {
       setState('level-complete');
+      playHurray();
       canvas.setAttribute('aria-label', `Winter board. Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the den on the ${engine.den.side} edge. Normal steering controls. Avoid frozen blocks, walls and bodies.`);
       showOverlay(`LEVEL ${engine.level} COMPLETED`, 'Winter is coming', `${engine.levelTarget} of every animal caught! Guide ${engine.playerCount === 2 ? 'both teammates' : 'your snake'} into the hollow TREE DEN on the ${engine.den.side} edge. Watch it slowly settle inside. Avoid frozen × blocks and other hazards; a clear route is kept open. Your score stays with you.`, 'FIND SHELTER', 'Summer brings a fresh three-segment snake and a higher target.');
       announce(`Level ${engine.level} completed. Winter is coming. Find the ${engine.den.side}-edge den.`);

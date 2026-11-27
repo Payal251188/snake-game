@@ -92,6 +92,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
                 viewportWidth: innerWidth,
                 viewportHeight: innerHeight,
                 board: fits('#board'),
+                chart: fits('#levelChart') && [...document.querySelectorAll('#levelChart th, #levelChart td')].every((cell) => { const r=cell.getBoundingClientRect(); return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight; }),
                 scoreboard: fits('.scoreboard'),
                 crowdAtTop: document.querySelector('#snakeFriends').getBoundingClientRect().bottom <= document.querySelector('#board').getBoundingClientRect().top,
                 actions: fits('.game-actions'),
@@ -105,7 +106,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             assert.equal(layout.overflow, 'hidden');
             assert.ok(layout.width <= layout.viewportWidth, 'no horizontal overflow');
             assert.ok(layout.height <= layout.viewportHeight, 'no vertical overflow');
-            for (const key of ['board', 'scoreboard', 'actions', 'crowd', 'crowdAtTop', 'touch']) assert.ok(layout[key], `${key} fits`);
+            for (const key of ['board', 'chart', 'scoreboard', 'actions', 'crowd', 'crowdAtTop', 'touch']) assert.ok(layout[key], `${key} fits`);
             await page.mouse.wheel(0, 500);
             assert.equal(await page.evaluate(() => scrollY), 0);
             await page.locator('#settingsSummary').click();
@@ -527,6 +528,13 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await startPlaying(page); await page.clock.runFor(600);
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'level-complete');
           assert.equal(await page.locator('#overlayTitle').textContent(), 'Winter is coming');
+          assert.equal(await page.locator('#chartStatus').textContent(), 'HURRAY! ALL DONE');
+          await page.waitForFunction(() => document.getElementById('hurray').readyState >= 2);
+          assert.equal(await page.locator('#hurray').evaluate((sound) => sound.error), null);
+          for(const animal of ['rat','rabbit','frog']){
+            assert.equal(await page.locator(`#${animal}LevelEaten`).textContent(),'10');
+            assert.equal(await page.locator(`#${animal}LevelPending`).textContent(),'0');
+          }
           assert.equal(await page.locator('#level').textContent(), '1');
           await page.locator('#playButton').click();
           await page.evaluate(() => {
@@ -546,6 +554,9 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'level-ready');
           assert.match(await page.locator('#overlayTag').textContent(), /SUMMER/);
           assert.equal(await page.locator('#ratProgressText').textContent(), '0/15');
+          assert.equal(await page.locator('#ratLevelEaten').textContent(),'0');
+          assert.equal(await page.locator('#ratLevelRequired').textContent(),'15');
+          assert.equal(await page.locator('#ratLevelPending').textContent(),'15');
           assert.equal(await page.locator('#score').textContent(), '30');
           assert.equal(await page.evaluate(() => window.seasonGame.snake.length), 3);
           assert.equal(await page.evaluate(() => window.seasonGame.interval), 200);
