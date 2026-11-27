@@ -45,6 +45,7 @@
   let lastVisualFrame = null;
   let sceneDirty = true;
   const boardPainter = SnakeBoard.createPainter();
+  const winterPainter = SnakeWinter.createPainter();
   const cleanName = (value) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   let reducedMotion = motionPreference.matches;
@@ -74,6 +75,7 @@
   let countdownElapsed = 0;
   let countdownLastTime = null;
   let pausedCountdown = false;
+  let pausedHibernation = false;
   let width = 720;
   let height = 600;
   let soundOn = true;
@@ -331,6 +333,7 @@
     noticeRemaining = 0;
     shieldFlashes.clear();
     denAnimations.clear();
+    pausedHibernation = false;
     seasonTransitionRemaining = 0;
     $('eventNotice').hidden = true;
     sceneDirty = true;
@@ -453,7 +456,7 @@
   function updateGoldenStatus() {
     if (engine.season !== 'summer') {
       $('goldenStatus').dataset.active = 'false';
-      $('goldenStatus').textContent = engine.season === 'sleeping' ? '❄ Hibernating… summer is next.' : `❄ WINTER · Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the ${engine.den.side}-edge DEN.`;
+      $('goldenStatus').textContent = engine.season === 'sleeping' ? '❄ Hibernating… summer is next.' : `❄ WINTER · Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the ${engine.den.side}-edge TREE DEN. Avoid the frozen × blocks.`;
       return;
     }
     $('goldenStatus').dataset.active = String(Boolean(engine.goldenFood));
@@ -545,14 +548,14 @@
       $(`${animal}ProgressText`).textContent = `${count}/${target}`;
     }
     $('roundGoal').textContent = `Optional goal — ${roundGoal.description} ${engine.players.slice(0, engine.playerCount).map((player, index) => { const progress = SnakeRewards.goalProgress(player, roundGoal); return `P${index + 1}: ${progress.value}/${progress.target}${progress.complete ? ' ✓' : ''}`; }).join(' · ')}`;
-    $('levelHint').textContent = engine.season === 'summer' ? `This level: ${target} of each animal, caught by humans. Then find the winter den. Next level needs ${target + 5} of each.` : 'Level completed! Winter is coming. Reach the edge den to hibernate; your score will be kept.';
+    $('levelHint').textContent = engine.season === 'summer' ? `This level: ${target} of each animal, caught by humans. Then find the winter den. Next level needs ${target + 5} of each.` : 'Level completed! Reach the hollow tree at the edge. Avoid frozen × blocks; your score will be kept.';
   }
 
   function setState(next) {
     state = next;
     sceneDirty = true;
     const active = ['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state);
-    if (state === 'playing' || state === 'countdown') {
+    if (['playing', 'countdown', 'season-transition'].includes(state)) {
       closeHeaderPanels();
     }
     if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
@@ -571,7 +574,7 @@
     previewSound = false;
     syncMusic();
     for (const id of ['modeSelect', 'playersSelect', 'aiCountSelect', 'foodSelect']) $(id).disabled = active;
-    $('pauseButton').disabled = !['playing', 'countdown', 'paused'].includes(state);
+    $('pauseButton').disabled = !['playing', 'countdown', 'paused', 'season-transition'].includes(state);
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
     breakTimer.reset();
@@ -776,16 +779,17 @@
   }
 
   function pause() {
-    if (state === 'playing' || state === 'countdown') {
+    if (['playing', 'countdown', 'season-transition'].includes(state)) {
       pausedCountdown = state === 'countdown';
+      pausedHibernation = state === 'season-transition';
       setState('paused');
       showOverlay('NO RUSH. WE’LL WAIT.', 'A little breather.', pausedCountdown ? 'Your countdown will continue when you return.' : 'Your next bite is right where you left it.', 'BACK TO IT', 'or press space to resume');
       announce('Game paused.');
     } else if (state === 'paused') {
       void unlockAudio();
-      setState(pausedCountdown ? 'countdown' : 'playing');
+      setState(pausedHibernation ? 'season-transition' : pausedCountdown ? 'countdown' : 'playing');
       canvas.focus({ preventScroll: true });
-      announce(pausedCountdown ? 'Countdown resumed.' : 'Game resumed.');
+      announce(pausedHibernation ? 'Hibernation resumed.' : pausedCountdown ? 'Countdown resumed.' : 'Game resumed.');
     }
   }
 
@@ -876,16 +880,18 @@
     }
     for (const event of engine.lastEvents.filter((entry) => entry.type === 'den-entered')) {
       const player = engine.players[event.playerIndex];
-      denAnimations.set(event.playerIndex, { player: { ...player, snake: previousPlayers[event.playerIndex].snake }, remaining: 1000 });
+      const body = previousPlayers[event.playerIndex].snake;
+      const duration = reducedMotion ? 800 : SnakeMotion.hibernationDuration(body.length, engine.interval);
+      denAnimations.set(event.playerIndex, { player: { ...player, snake: body }, duration, remaining: duration });
       announce(`${nameFor(event.playerIndex)} is hibernating.${engine.playerCount === 2 && engine.season === 'winter' ? ' Guide your teammate into the den too.' : ' Summer is coming next.'}`);
     }
     if (result === 'level-complete') {
       setState('level-complete');
-      canvas.setAttribute('aria-label', `Winter board. Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the den on the ${engine.den.side} edge. Normal steering controls. Avoid walls and bodies.`);
-      showOverlay(`LEVEL ${engine.level} COMPLETED`, 'Winter is coming', `${engine.levelTarget} of every animal caught! Guide ${engine.playerCount === 2 ? 'both teammates' : 'your snake'} into the DEN on the ${engine.den.side} edge to hibernate. Your score stays with you. Controls are normal; avoid the remaining hazards.`, 'FIND SHELTER', 'Summer brings a fresh three-segment snake and a higher target.');
+      canvas.setAttribute('aria-label', `Winter board. Guide ${engine.playerCount === 2 ? 'both snakes' : 'your snake'} into the den on the ${engine.den.side} edge. Normal steering controls. Avoid frozen blocks, walls and bodies.`);
+      showOverlay(`LEVEL ${engine.level} COMPLETED`, 'Winter is coming', `${engine.levelTarget} of every animal caught! Guide ${engine.playerCount === 2 ? 'both teammates' : 'your snake'} into the hollow TREE DEN on the ${engine.den.side} edge. Watch it slowly settle inside. Avoid frozen × blocks and other hazards; a clear route is kept open. Your score stays with you.`, 'FIND SHELTER', 'Summer brings a fresh three-segment snake and a higher target.');
       announce(`Level ${engine.level} completed. Winter is coming. Find the ${engine.den.side}-edge den.`);
     } else if (result === 'hibernated') {
-      seasonTransitionRemaining = 1100;
+      seasonTransitionRemaining = Math.max(0, ...[...denAnimations.values()].map((animation) => animation.remaining)) + 600;
       setState('season-transition');
     }
     if (result === 'lost' || result === 'won') {
@@ -894,7 +900,7 @@
       renderRoundResults();
       if (won) tone(880, 0.25);
       else playGameOver();
-      const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a stone block', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
+      const reasons = { wall: 'hit a wall', barrier: 'hit a barrier', rock: 'hit a stone block', 'winter-block': 'hit a frozen winter block', body: 'ran into your own body', opponent: 'hit the other snake', 'head-on': 'collided head-on' };
       if (engine.aiCount) {
         const humanWon = engine.winner === 0;
         const title = humanWon ? 'You win the AI Arena!' : engine.endReason === 'filled' && engine.winner === null ? 'It’s a draw!' : 'The AI got this round.';
@@ -1046,11 +1052,7 @@
     canvas.dataset.season = engine.season;
     const den = engine.den ? { x: left + (engine.den.x + 0.5) * cell, y: top + (engine.den.y + 0.5) * cell } : null;
     if (den) {
-      ellipse(den.x, den.y, cell * 0.49, cell * 0.4, '#d8c3a2');
-      ellipse(den.x, den.y, cell * 0.42, cell * 0.34, '#806349');
-      ellipse(den.x, den.y, cell * 0.35, cell * 0.27, '#080d10');
-      ctx.fillStyle = '#f8eed1'; ctx.font = `bold ${Math.max(9, cell * 0.28)}px system-ui`; ctx.textAlign = 'center';
-      ctx.fillText('DEN', den.x, den.y + (engine.den.y === 0 ? cell * 0.95 : -cell * 0.65));
+      winterPainter.drawTree(ctx, { ...den, cell, pixelRatio: canvas.width / width });
     }
     const progress = ['playing', 'paused'].includes(state) ? Math.max(0, Math.min(1, elapsed / engine.interval)) : 1;
     const players = SnakeMotion.interpolate(previousPlayers, engine.players, progress, engine);
@@ -1080,13 +1082,23 @@
     });
     if (den) {
       for (const [index, animation] of denAnimations) {
-        const progress = 1 - animation.remaining / 1000;
-        const player = { ...animation.player, snake: SnakeMotion.hibernate(animation.player.snake, engine.den, progress, engine) };
-        ctx.save(); ctx.globalAlpha = Math.max(0, 1 - progress * 0.8);
-        SnakeRenderer.draw(ctx, { left, top, cell, player, skin: SnakeSkins.forPlayer(index, playerSkin), time: visualTime, animate: false });
-        ctx.restore();
+        const progress = 1 - animation.remaining / animation.duration;
+        const snake = SnakeMotion.hibernate(animation.player.snake, engine.den, progress, engine);
+        if (!snake.length) continue;
+        const headVisible = snake[0].x !== engine.den.x || snake[0].y !== engine.den.y;
+        const player = { ...animation.player, snake };
+        SnakeRenderer.draw(ctx, { left, top, cell, player, skin: SnakeSkins.forPlayer(index, playerSkin), time: visualTime, animate: false, headVisible });
       }
-      ellipse(den.x, den.y, cell * 0.35, cell * 0.27, '#080d10');
+      SnakeWinter.drawEntrance(ctx, { ...den, cell });
+      const labelX = Math.max(29, Math.min(width - 29, den.x));
+      const labelY = den.y + cell > height - 8 ? den.y - cell * .9 : den.y + cell;
+      ctx.fillStyle = '#122a29'; ctx.beginPath(); ctx.roundRect(labelX-28,labelY-11,56,15,4); ctx.fill();
+      ctx.fillStyle = '#ecf4df'; ctx.font = 'bold 9px system-ui'; ctx.textAlign = 'center'; ctx.fillText('TREE DEN',labelX,labelY);
+      if (denAnimations.size || engine.season === 'sleeping') {
+        ctx.fillStyle = '#e0eddd'; ctx.font = `bold ${Math.max(10,cell*.36)}px system-ui`;
+        ctx.fillText('z z z',labelX,den.y-cell*1.6);
+      }
+      SnakeWinter.drawSnow(ctx, { width,height,time:visualTime,animate:!reducedMotion });
     }
   }
 
@@ -1111,7 +1123,7 @@
     $(id).addEventListener('toggle', () => {
       if (!$(id).open) return;
       for (const other of Object.keys(headerPanels)) if (other !== id) $(other).open = false;
-      if (state === 'playing' || state === 'countdown') pause();
+      if (['playing', 'countdown', 'season-transition'].includes(state)) pause();
       if (id === 'gameHelp') {
         $('helpPanel').scrollTop = 0;
         $('helpPanel').focus({ preventScroll: true });
@@ -1138,7 +1150,7 @@
     }
     if (key === ' ') { if (['ready', 'over', 'won', 'level-complete', 'level-ready'].includes(state)) playAction(); else pause(); }
     if (key === 'r') startGame();
-    if (key === 'Escape' && ['playing', 'countdown'].includes(state)) pause();
+    if (key === 'Escape' && ['playing', 'countdown', 'season-transition'].includes(state)) pause();
   });
   $('playerInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
@@ -1213,7 +1225,7 @@
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => canvas.addEventListener(name, () => { gesture = null; }));
   function suspendPlayback() {
-    if (state === 'playing' || state === 'countdown') pause();
+    if (['playing', 'countdown', 'season-transition'].includes(state)) pause();
     else if (previewSound) { previewSound = false; syncMusic(); }
   }
   window.addEventListener('blur', suspendPlayback);
@@ -1288,8 +1300,8 @@
         announce(`Summer has arrived. Level ${engine.level}. Three segments, ${engine.speedMultiplier.toFixed(1)} times speed. Catch ${engine.levelTarget} of each animal.`);
       }
     }
+    if ((state === 'playing' || state === 'season-transition') && !reducedMotion) visualTime += delta;
     if (state === 'playing') {
-      if (!reducedMotion) visualTime += delta;
       noticeRemaining = Math.max(0, noticeRemaining - delta);
       if (!noticeRemaining) $('eventNotice').hidden = true;
       for (const [index, remaining] of shieldFlashes) {

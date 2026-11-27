@@ -40,7 +40,14 @@
     ctx.stroke(); ctx.strokeStyle = colors.edge; ctx.lineWidth = 1; ctx.strokeRect(left, top, w, h);
     for (const obstacle of obstacles) {
       const x = left + obstacle.x * cell; const y = top + obstacle.y * cell; const inset = cell * 0.08;
-      if (obstacle.type === 'rock') {
+      if (obstacle.type === 'winter-block') {
+        rounded(ctx, x + cell * .12, y + cell * .17, cell * .76, cell * .72, cell * .04, '#416574');
+        rounded(ctx, x + cell * .16, y + cell * .12, cell * .68, cell * .66, cell * .04, '#92c2d0');
+        rounded(ctx, x + cell * .16, y + cell * .12, cell * .68, cell * .12, cell * .04, '#eef8f6');
+        ctx.lineWidth = Math.max(1.2,cell*.09); ctx.strokeStyle = '#244852'; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x+cell*.34,y+cell*.34); ctx.lineTo(x+cell*.66,y+cell*.64);
+        ctx.moveTo(x+cell*.66,y+cell*.34); ctx.lineTo(x+cell*.34,y+cell*.64); ctx.stroke();
+      } else if (obstacle.type === 'rock') {
         // A full-cell masonry block and high-contrast × read as a hurdle, not a pickup.
         rounded(ctx, x + inset, y + inset, cell * 0.84, cell * 0.84, cell * 0.05, '#293f49');
         rounded(ctx, x + cell * 0.14, y + cell * 0.14, cell * 0.72, cell * 0.65, cell * 0.025, '#748a90');
@@ -71,7 +78,7 @@
   }
   function signature(obstacles) {
     let hash = 0;
-    for (const cell of obstacles) hash = (Math.imul(hash, 31) + cell.x * 7 + cell.y * 197 + (cell.type === 'wall' ? 1 : cell.type === 'rock' ? 2 : 3)) | 0;
+    for (const cell of obstacles) hash = (Math.imul(hash, 31) + cell.x * 7 + cell.y * 197 + (cell.type === 'wall' ? 1 : cell.type === 'rock' ? 2 : cell.type === 'winter-block' ? 4 : 3)) | 0;
     return hash;
   }
   function createPainter(createSurface = surface) {

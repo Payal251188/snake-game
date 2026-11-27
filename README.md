@@ -47,8 +47,10 @@ Visit **http://localhost:45006/**. Hard-refresh an older tab if necessary.
 - Shaded animal sprites have individual behavior: **rats scurry one cell**, **rabbits hop two cells**, and **frogs jump to a random clear location**. Rabbits require a clear intervening cell. Food never lands on snakes, hazards, or other items, or near a snake's head. Animals within two cells of a head stay put so an approaching catch remains fair.
 - Each animal retains its type until caught. Moving food updates the real board position, so bots chase the same targets humans see. Pausing freezes relocation timers.
 - **Level 1 requires 10 rats, 10 rabbits, and 10 frogs caught by humans.** Each next level requires **5 more of each**: Level 2 needs 15 each, Level 3 needs 20 each, then 25, 30, etc. Progress is fresh for each level, not cumulative round totals. Both co-op humans contribute; AI catches and score bonuses never satisfy these targets.
-- Meeting the quota shows **Level completed — Winter is coming**. Choose Find shelter and steer into the labeled **DEN at the edge**. A boundary-wall cell opens in Obstacles/Maze. Food rests, controls return to normal, and AI snakes hibernate automatically; hazards and body collisions still matter. Both co-op teammates must enter; resting bodies stop blocking the board.
-- Snakes slide into the den, then **summer arrives**. Surviving snakes restart with **three segments**, but round scores, names, total catches, records, and earned achievements are kept. Eliminated bots do not return. Level progress and temporary effects reset. Speed rises by 20% of the starting speed per level: 1.0×, 1.2×, 1.4×, etc. Start the next level through its countdown.
+- Meeting the quota shows **Level completed — Winter is coming**. Choose Find shelter and steer into the labeled **hollow TREE DEN at the edge**. A boundary-wall cell opens in Obstacles/Maze. Food rests, controls return to normal, and AI snakes hibernate automatically; hazards and body collisions still matter. Both co-op teammates must enter; resting bodies stop blocking the board.
+- Winter has light, bounded snowfall and at most **three spaced-out frozen × blocks**. Blocks are deadly like normal hazards (a ready shield can absorb one hit). They never spawn on snakes, within three cells of a human head/the den, or on the reserved clear routes. They disappear in summer. Crowded boards with no clear current route receive no extra blocks.
+- Snakes glide into the tree slowly, **head first and tail last**, rather than fading out as a whole. Duration scales with length and current pace (3–15 seconds), with gentle acceleration/deceleration. Co-op waits for both entries **and all visible tails** before summer. Pausing, opening Help/Settings, or hiding the tab freezes the entry and snowfall. Reduced-motion mode omits falling particles and shortens entry to 0.8 seconds.
+- After the snake settles inside, **summer arrives**. Surviving snakes restart with **three segments**, but round scores, names, total catches, records, and earned achievements are kept. Eliminated bots do not return. Level progress and temporary effects reset. Speed rises by 20% of the starting speed per level: 1.0×, 1.2×, 1.4×, etc. Start the next level through its countdown.
 - The round details count all snakes' catches; the progress bars count humans only. Scores, catches, levels, and effects reset each round.
 
 ### Chains, goals, medals, and round results
@@ -100,7 +102,8 @@ A shared URL currently opens independent games on each browser. Public HTTPS dep
 - `snake-engine.js`: grid movement, simultaneous collisions, human progression, food behavior, power-ups, mushrooms, herbs, and win rules.
 - `snake-ai.js`: deterministic Hungry/Cautious/Collector steering with food/power-up search, escape-space checks, and collision avoidance.
 - `snake-rewards.js`: read-only optional goals, medals, time formatting, and individual round summaries.
-- `snake-motion.js`: read-only snake interpolation, wrap handling, growth, food hops, and den-entry animation.
+- `snake-motion.js`: read-only snake interpolation, wrap handling, growth, food hops, and length-aware, segment-by-segment den entry.
+- `snake-winter.js`: cached snowy hollow-tree artwork, foreground entrance masking, and bounded lightweight snowfall.
 - `snake-board.js`: cached fixed 2D board, simple backdrops, obstacles, and resolution limits.
 - `snake-skins.js`, `snake-renderer.js`: immutable skin catalog and shared snake/preview rendering.
 - `snake-items-renderer.js`: shaded mushroom, herb, shield, and clock sprites.

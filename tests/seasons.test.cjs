@@ -88,6 +88,38 @@ test('AI rests automatically without awarding an accidental survival win or resu
   assert.ok(g.players.slice(0, 3).every((player) => player.alive && !player.hibernating));
 });
 
+test('winter blocks are sparse, spaced out, never spawn on bodies or their clear route, and vanish in summer', () => {
+  for (const mode of ['classic', 'obstacles', 'maze']) for (const playerCount of [1, 2]) for (let seed = 1; seed <= 6; seed++) {
+    let value = seed;
+    const g = make({ mode, playerCount, teamMode: true, random: () => ((value = (Math.imul(value, 1664525) + 1013904223) >>> 0) / 4294967296) });
+    const distance = (a,b) => { const x=Math.abs(a.x-b.x), y=Math.abs(a.y-b.y); return g.wraps ? Math.min(x,g.columns-x)+Math.min(y,g.rows-y) : x+y; };
+    let routes;
+    const add = g.addWinterBlocks.bind(g);
+    g.addWinterBlocks = () => { routes = g.players.slice(0,playerCount).map((p) => g.pathToDen(p)); add(); };
+    complete(g);
+    const blocks = g.obstacles.filter((cell) => cell.type === 'winter-block');
+    assert.ok(blocks.length > 0 && blocks.length <= 3);
+    assert.notEqual(g.den.side, 'top');
+    for (const [index,block] of blocks.entries()) {
+      assert.ok(g.players.every((p) => p.snake.every((cell) => distance(cell,block) > 0)));
+      assert.ok(g.players.every((p) => distance(p.snake[0],block) > 3));
+      assert.ok(distance(g.den,block) > 3);
+      assert.ok(routes.flat().every((cell) => distance(cell,block) > 1));
+      assert.ok(blocks.slice(index+1).every((other) => distance(block,other) >= 4));
+    }
+    assert.ok(g.players.slice(0,playerCount).every((p) => g.pathToDen(p)));
+    enter(g); if(playerCount===2) enter(g,1); g.startNextLevel();
+    assert.ok(g.obstacles.every((cell) => cell.type !== 'winter-block'));
+  }
+});
+
+test('hitting a frozen winter block loses the run', () => {
+  const g=make(); complete(g);
+  const block=g.obstacles.find((cell)=>cell.type==='winter-block');
+  g.snake=[{x:block.x-1,y:block.y}];g.direction='right';
+  assert.equal(g.tick(),'lost'); assert.equal(g.collision,'winter-block');
+});
+
 test('winter is still a real steering challenge and collisions can end the run', () => {
   const g = make({ mode: 'obstacles' }); complete(g);
   const wall = g.obstacles.find((cell) => cell.x === 0 && cell.y === 1);
@@ -101,6 +133,11 @@ test('den animation is read-only, begins at the real body, and ends inside the h
   const before = JSON.stringify(body); const den = { x: 0, y: 5 };
   const options = { columns: 24, rows: 20, wraps: false };
   assert.deepEqual(SnakeMotion.hibernate(body, den, 0, options), body);
-  assert.deepEqual(SnakeMotion.hibernate(body, den, 1, options), body.map(() => den));
+  assert.deepEqual(SnakeMotion.hibernate(body, den, 1, options), []);
+  const middle = SnakeMotion.hibernate(body, den, .6, options);
+  assert.deepEqual(middle[0], den);
+  assert.ok(middle.length < body.length, 'segments disappear inside, rather than the whole snake fading');
+  assert.ok(SnakeMotion.hibernationDuration(33) > 10000);
+  assert.equal(SnakeMotion.hibernationDuration(500), 15000);
   assert.equal(JSON.stringify(body), before);
 });

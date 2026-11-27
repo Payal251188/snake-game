@@ -535,7 +535,14 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             g.snake = [{ x: d.x - delta[0], y: d.y - delta[1] }];
             g.direction = { left: 'left', right: 'right', top: 'up', bottom: 'down' }[d.side];
           });
-          await page.clock.runFor(1700);
+          await page.clock.runFor(600);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'season-transition');
+          await page.locator('#pauseButton').click();
+          await page.clock.runFor(5000);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
+          assert.equal(await page.evaluate(() => window.seasonGame.level), 1);
+          await page.locator('#playButton').click();
+          await page.clock.runFor(4400);
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'level-ready');
           assert.match(await page.locator('#overlayTag').textContent(), /SUMMER/);
           assert.equal(await page.locator('#ratProgressText').textContent(), '0/15');

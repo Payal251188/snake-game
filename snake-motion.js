@@ -53,7 +53,10 @@
   }
 
   function hibernate(snake, den, amount, { columns, rows, wraps }) {
-    const progress = clamp(amount);
+    const time = clamp(amount);
+    const ramp = 0.12;
+    const progress = time < ramp ? time * time / (2 * ramp * (1 - ramp))
+      : time > 1 - ramp ? 1 - (1 - time) ** 2 / (2 * ramp * (1 - ramp)) : (time - ramp / 2) / (1 - ramp);
     const travel = progress * (snake.length + 1);
     const path = [{ x: den.x, y: den.y }, ...snake];
     const blend = (from, to, fraction, size) => {
@@ -62,15 +65,21 @@
       const value = from + delta * fraction;
       return wraps ? (value % size + size) % size : value;
     };
-    return snake.map((_, index) => {
-      const position = Math.max(0, index + 1 - travel);
+    if (time >= 1 || !snake.length) return [];
+    const visible = [];
+    if (travel >= 1) visible.push({ x: den.x, y: den.y });
+    for (let index = 0; index < snake.length; index++) {
+      const position = index + 1 - travel;
+      if (position <= 0) continue;
       const a = path[Math.floor(position)] || path.at(-1);
       const b = path[Math.min(path.length - 1, Math.ceil(position))] || a;
-      return { x: blend(a.x, b.x, position % 1, columns), y: blend(a.y, b.y, position % 1, rows) };
-    });
+      visible.push({ x: blend(a.x, b.x, position % 1, columns), y: blend(a.y, b.y, position % 1, rows) });
+    }
+    return visible;
   }
 
-  const SnakeMotion = Object.freeze({ capture, interpolate, foodPosition, hibernate });
+  const hibernationDuration = (length, interval = 240) => Math.min(15000, Math.max(3000, (length + 1) * interval * 1.3));
+  const SnakeMotion = Object.freeze({ capture, interpolate, foodPosition, hibernate, hibernationDuration });
   if (typeof module !== 'undefined' && module.exports) module.exports = { SnakeMotion };
   else root.SnakeMotion = SnakeMotion;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -70,7 +70,7 @@
     return material;
   }
 
-  function draw(ctx, { left, top, cell, time = 0, player, skin, animate = false }) {
+  function draw(ctx, { left, top, cell, time = 0, player, skin, animate = false, headVisible = true }) {
     if (!player.snake.length || cell <= 0) return;
     const palette = skin.palette;
     const material = player.snake.length >= 5 ? materialFor(skin) : null;
@@ -124,6 +124,7 @@
       }
       ctx.restore();
     }
+    if (!headVisible) return;
     const head = points[0];
     ctx.save(); ctx.translate(head.x, head.y);
     ctx.rotate({ right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[player.direction]);

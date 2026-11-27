@@ -11,6 +11,7 @@ const { SnakeItemsRenderer } = require('../snake-items-renderer.js');
 const { SnakeMotion } = require('../snake-motion.js');
 const { SnakeRewards } = require('../snake-rewards.js');
 const { SnakeBoard } = require('../snake-board.js');
+const { SnakeWinter } = require('../snake-winter.js');
 const { SnakeAuth } = require('../snake-auth.js');
 const { SnakeBreaks } = require('../snake-breaks.js');
 const { SnakeVoice } = require('../snake-voice.js');
@@ -108,6 +109,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     SnakeItemsRenderer,
     SnakeMotion,
     SnakeBoard,
+    SnakeWinter,
     SnakeRewards,
     SnakeAuth: authModule,
     SnakeBreaks,
@@ -1722,7 +1724,12 @@ test('winter shelter starts a faster summer with five more animals per target an
   g.engine.direction = { left: 'left', right: 'right', top: 'up', bottom: 'down' }[den.side];
   g.frame(1000); g.frame(1200); g.frame(1400);
   assert.equal(g.state(), 'season-transition');
-  for (let time = 1450; time <= 2600; time += 50) g.frame(time);
+  g.click('pauseButton');
+  g.frame(2000); g.frame(3000);
+  assert.equal(g.state(), 'paused'); assert.equal(g.engine.level, 1);
+  g.click('playButton');
+  assert.equal(g.state(), 'season-transition', 'resume never resumes grid movement inside the tree');
+  for (let time = 3050; time <= 7100; time += 50) g.frame(time);
   assert.equal(g.state(), 'level-ready');
   assert.equal(g.engine.level, 2);
   assert.equal(g.engine.snake.length, 3);

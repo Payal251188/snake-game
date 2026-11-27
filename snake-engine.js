@@ -410,10 +410,60 @@
         const reachable = distances.map((map) => map.get(`${innerX},${innerY}`));
         candidates.push({ x, y, side, cost: reachable.reduce((sum, value) => sum + (value ?? this.columns * this.rows * 4), 0) + (occupied.has(`${x},${y}`) ? this.columns * this.rows * 8 : 0) });
       };
-      for (let y = 1; y < this.rows - 1; y++) { add(0, y, 1, y, 'left'); add(this.columns - 1, y, this.columns - 2, y, 'right'); }
-      for (let x = 1; x < this.columns - 1; x++) { add(x, 0, x, 1, 'top'); add(x, this.rows - 1, x, this.rows - 2, 'bottom'); }
+      // Keep a vertical hollow tree on-screen: no top entrance or high side entrances.
+      for (let y = Math.min(4, this.rows - 2); y < this.rows - 1; y++) { add(0, y, 1, y, 'left'); add(this.columns - 1, y, this.columns - 2, y, 'right'); }
+      for (let x = 1; x < this.columns - 1; x++) add(x, this.rows - 1, x, this.rows - 2, 'bottom');
       const selected = candidates.sort((a, b) => a.cost - b.cost)[0] || { x: 0, y: Math.floor(this.rows / 2), side: 'left' };
       return { x: selected.x, y: selected.y, side: selected.side };
+    }
+
+    pathToDen(player) {
+      if (!this.den) return null;
+      const key = (cell) => `${cell.x},${cell.y}`;
+      const blocked = new Set([...this.obstacles, ...this.livingPlayers.flatMap((other) => other.snake)].map(key));
+      blocked.delete(key(player.snake[0])); blocked.delete(key(player.snake.at(-1)));
+      const queue = [player.snake[0]], previous = new Map([[key(queue[0]), null]]);
+      for (let i = 0; i < queue.length; i++) {
+        const cell = queue[i];
+        if (same(cell, this.den)) {
+          const path = []; let cursor = cell;
+          while (cursor) { path.push(cursor); cursor = previous.get(key(cursor)); }
+          return path.reverse();
+        }
+        for (const delta of Object.values(directions)) {
+          const next = { x: cell.x + delta.x, y: cell.y + delta.y };
+          if (this.wraps) { next.x = (next.x + this.columns) % this.columns; next.y = (next.y + this.rows) % this.rows; }
+          if (next.x < 0 || next.y < 0 || next.x >= this.columns || next.y >= this.rows || blocked.has(key(next)) || previous.has(key(next))) continue;
+          previous.set(key(next), cell); queue.push(next);
+        }
+      }
+      return null;
+    }
+
+    addWinterBlocks() {
+      const humans = this.players.slice(0, this.playerCount).filter((player) => player.alive);
+      const paths = humans.map((player) => this.pathToDen(player));
+      // A crowded snake may need its tail to vacate before a route exists. Do not add pressure then.
+      if (paths.some((path) => !path)) return;
+      const route = paths.flat();
+      const distance = (a, b) => {
+        let x = Math.abs(a.x - b.x), y = Math.abs(a.y - b.y);
+        if (this.wraps) { x = Math.min(x, this.columns - x); y = Math.min(y, this.rows - y); }
+        return x + y;
+      };
+      let candidates = this.emptyCells([this.den]).filter((cell) => {
+        if (cell.x < 1 || cell.y < 1 || cell.x >= this.columns - 1 || cell.y >= this.rows - 1) return false;
+        if (humans.some((player) => distance(cell, player.snake[0]) <= 3)) return false;
+        if (distance(cell, this.den) <= 3) return false;
+        if (Math.abs(cell.x - this.den.x) <= 2 && cell.y >= this.den.y - 4 && cell.y <= this.den.y + 1) return false;
+        return route.every((step) => distance(cell, step) > 1);
+      });
+      const target = Math.min(3, Math.max(1, Math.floor(this.columns * this.rows / 150)));
+      for (let i = 0; i < target && candidates.length; i++) {
+        const cell = this.pickCell(candidates);
+        this.obstacles.push({ ...cell, type: 'winter-block' });
+        candidates = candidates.filter((other) => distance(other, cell) >= 4);
+      }
     }
 
     beginWinter() {
@@ -428,6 +478,7 @@
       this.mushrooms = []; this.herbs = []; this.powerups = [];
       this.den = this.chooseDen();
       this.obstacles = this.obstacles.filter((cell) => !same(cell, this.den));
+      this.addWinterBlocks();
       this.lastEvents.push({ type: 'level-complete', level: this.level });
       return true;
     }
