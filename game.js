@@ -50,6 +50,9 @@
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   let reducedMotion = motionPreference.matches;
   let state = 'ready';
+  let savedRun = null;
+  let homeRequest = null;
+  const hasOngoingRound = () => ['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state);
   let best = 0;
   let bestName = '';
   const records = new Map();
@@ -199,18 +202,21 @@
     });
   }
   function focusHome() {
-    $(identityChoice === 'choose' ? 'guestPlayButton' : authUser ? 'playButton' : 'playerInput').focus({ preventScroll: true });
+    $(savedRun ? 'resumeGameButton' : identityChoice === 'choose' ? 'guestPlayButton' : authUser ? 'playButton' : 'playerInput').focus({ preventScroll: true });
   }
 
   function syncIdentityUI() {
     const home = state === 'ready';
-    $('authPanel').hidden = !home;
+    $('homeResume').hidden = !home || !savedRun;
+    if (savedRun) $('homeResumeSummary').textContent = `${engine.isTeam ? teamName : playerName} · Level ${engine.level} · Score ${engine.isTeam ? engine.totalScore : engine.score} · ${recordLabel()}`;
+    $('homeSettings').hidden = Boolean(savedRun);
+    $('authPanel').hidden = !home || Boolean(savedRun);
     $('authChoices').hidden = identityChoice !== 'choose';
     $('authSession').hidden = identityChoice === 'choose';
-    $('playerEntry').hidden = !home || identityChoice !== 'guest';
-    $('teamEntry').hidden = !home || engine.playerCount !== 2 || identityChoice === 'choose';
-    $('homeSetup').hidden = !home || identityChoice === 'choose';
-    $('playButton').hidden = home && identityChoice === 'choose';
+    $('playerEntry').hidden = !home || Boolean(savedRun) || identityChoice !== 'guest';
+    $('teamEntry').hidden = !home || Boolean(savedRun) || engine.playerCount !== 2 || identityChoice === 'choose';
+    $('homeSetup').hidden = !home || Boolean(savedRun) || identityChoice === 'choose';
+    $('playButton').hidden = home && (Boolean(savedRun) || identityChoice === 'choose');
     $('signOutButton').hidden = !authUser;
     $('settingsSignOutButton').hidden = !authUser;
     $('changeIdentityButton').hidden = Boolean(authUser);
@@ -226,7 +232,8 @@
       ? SnakeAuth.configured(authConfig) ? 'Sign in or play as a guest. Scores keep the scorer’s name.' : 'Social sign-in needs setup. You can play without login now.'
       : authUser ? 'Your profile name is used for scores. Best records remain on this device.' : 'Enter your name below. Your records count just like signed-in players.');
     document.querySelector('.game-shell').dataset.identity = identityChoice;
-    if (home && identityChoice === 'choose') $('overlayTitle').textContent = 'Choose how to play';
+    if (home && savedRun) $('overlayTitle').textContent = 'Ready when you are.';
+    else if (home && identityChoice === 'choose') $('overlayTitle').textContent = 'Choose how to play';
     else if (home && authUser) $('overlayTitle').textContent = `Ready, ${authUser.name}?`;
   }
 
@@ -245,7 +252,7 @@
       playerName = guestName;
       $('playerInput').value = guestName;
     }
-    if (changed && state !== 'ready') goHome();
+    if (changed && (state !== 'ready' || savedRun || homeRequest)) goHome();
     updateAvatarPicker();
     updateMode();
     updateScores();
@@ -393,7 +400,7 @@
     canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
   $('modeSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
+    if (savedRun || hasOngoingRound()) return;
     const mode = $('modeSelect').value;
     if (!Object.hasOwn(modes, mode)) return;
     engine.reset({ mode });
@@ -407,7 +414,7 @@
     announce(`${modes[mode].name} mode selected. ${modes[mode].hint}`);
   });
   $('playersSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
+    if (savedRun || hasOngoingRound()) return;
     const selection = $('playersSelect').value;
     if (!['1', '2', 'ai'].includes(selection)) return;
     const playerCount = selection === 'ai' ? 1 : Number(selection);
@@ -422,7 +429,7 @@
     announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player team' : 'Solo'} selected. ${steeringHint()}`);
   });
   $('aiCountSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
+    if (savedRun || hasOngoingRound()) return;
     const count = Number($('aiCountSelect').value);
     if (![2, 3].includes(count)) return;
     preferredAICount = count;
@@ -439,7 +446,7 @@
     announce(`${count} AI opponents selected.`);
   });
   $('foodSelect').addEventListener('change', () => {
-    if (['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state)) return;
+    if (savedRun || hasOngoingRound()) return;
     const foodCount = Number($('foodSelect').value);
     if (![1, 5, 10].includes(foodCount)) return;
     engine.reset({ foodCount });
@@ -567,7 +574,7 @@
   function setState(next) {
     state = next;
     sceneDirty = true;
-    const active = ['playing', 'countdown', 'paused', 'level-complete', 'season-transition', 'level-ready'].includes(state);
+    const active = Boolean(savedRun) || hasOngoingRound();
     if (['playing', 'countdown', 'season-transition'].includes(state)) {
       closeHeaderPanels();
     }
@@ -749,6 +756,8 @@
   }
 
   function startGame() {
+    if ($('homeDialog').open) return;
+    if (savedRun) { requestEndSavedGame(); return; }
     if (state === 'countdown') return;
     if (identityChoice === 'choose') { announce('Choose Google, Facebook, or Play without login first.'); $('guestPlayButton').focus({ preventScroll: true }); return; }
     const name = authUser ? authUser.name : cleanName($('playerInput').value);
@@ -818,6 +827,7 @@
   }
 
   function pause() {
+    if ($('homeDialog').open) return;
     if (['playing', 'countdown', 'season-transition'].includes(state)) {
       pausedCountdown = state === 'countdown';
       pausedHibernation = state === 'season-transition';
@@ -833,6 +843,8 @@
   }
 
   function goHome() {
+    homeRequest = null; savedRun = null;
+    if ($('homeDialog').open) $('homeDialog').close();
     closeHeaderPanels();
     countdownElapsed = 0;
     pausedCountdown = false;
@@ -849,6 +861,71 @@
     draw();
     focusHome();
     announce('Welcome home. Choose your map and players, then play.');
+  }
+
+  function captureRoundScreen() {
+    return { state, boardLabel: canvas.getAttribute('aria-label'), overlay: ['overlayTag','overlayTitle','overlayText','playLabel','spaceHint'].map((id) => $(id).textContent) };
+  }
+
+  function restoreRoundScreen(run) {
+    closeHeaderPanels();
+    setState(run.state);
+    updateMode(); updateScores();
+    if (run.boardLabel) canvas.setAttribute('aria-label', run.boardLabel);
+    ['overlayTag','overlayTitle','overlayText','playLabel','spaceHint'].forEach((id,index) => { $(id).textContent = run.overlay[index]; });
+    if (['playing','countdown','season-transition'].includes(state)) { void unlockAudio(); canvas.focus({ preventScroll: true }); }
+    else $('playButton').focus({ preventScroll: true });
+    announce(`Round restored. Level ${engine.level}. ${state === 'paused' ? 'Still paused.' : state === 'countdown' ? 'Countdown continues.' : 'Your progress is unchanged.'}`);
+  }
+
+  function openHomeDialog(discard = false) {
+    $('homeDialogTitle').textContent = discard ? 'End your saved game?' : 'Leave this game?';
+    $('homeDialogMessage').textContent = discard ? 'Ending this saved round permanently discards its progress and unlocks setup. Cancel to keep it available on Home.' : 'Going Home can end this round. Choose Resume later to keep it paused on Home, or End game to permanently discard it.';
+    $('saveHomeButton').hidden = discard;
+    $('endHomeButton').textContent = discard ? 'END SAVED GAME' : 'END GAME · GO HOME';
+    stopHurray(); breakVoice.cancel();
+    $('homeDialog').showModal();
+    $('cancelHomeButton').focus({ preventScroll: true });
+  }
+
+  function requestHome() {
+    if (homeRequest) return;
+    if (!hasOngoingRound()) { if (!savedRun) goHome(); return; }
+    const run = captureRoundScreen();
+    closeHeaderPanels();
+    if (['playing','countdown','season-transition'].includes(state)) pause();
+    homeRequest = { run, discard: false };
+    openHomeDialog();
+  }
+
+  function requestEndSavedGame() {
+    if (!savedRun || homeRequest) return;
+    closeHeaderPanels();
+    homeRequest = { discard: true };
+    openHomeDialog(true);
+  }
+
+  function cancelHomeRequest() {
+    if (!homeRequest) return;
+    const request = homeRequest; homeRequest = null;
+    $('homeDialog').close();
+    if (request.discard) focusHome();
+    else restoreRoundScreen(request.run);
+  }
+
+  function saveRoundOnHome() {
+    if (!homeRequest || homeRequest.discard) return;
+    savedRun = homeRequest.run; homeRequest = null;
+    $('homeDialog').close();
+    closeHeaderPanels(); resetCheer();
+    setState('ready'); updateMode(); updateScores(); draw(); focusHome();
+    announce('Your round is paused on Home. Choose Resume game to continue. Keep this tab open.');
+  }
+
+  function resumeSavedRound() {
+    if (!savedRun || state !== 'ready' || homeRequest) return;
+    const run = savedRun; savedRun = null;
+    restoreRoundScreen(run);
   }
 
   function advance() {
@@ -1171,6 +1248,16 @@
     });
   }
   window.addEventListener('keydown', (event) => {
+    if ($('homeDialog').open) {
+      if (event.key === 'Escape') { event.preventDefault(); cancelHomeRequest(); }
+      if (event.key === 'Tab') {
+        const buttons = ['cancelHomeButton','saveHomeButton','endHomeButton'].map($).filter((button) => !button.hidden && !button.disabled);
+        const index = buttons.indexOf(document.activeElement);
+        const next = index < 0 ? 0 : (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+        event.preventDefault(); buttons[next].focus({ preventScroll: true });
+      }
+      return;
+    }
     const openPanel = Object.keys(headerPanels).find((id) => $(id).open);
     if (event.key === 'Escape' && openPanel) {
       event.preventDefault();
@@ -1201,7 +1288,13 @@
   $('playButton').addEventListener('click', playAction);
   $('pauseButton').addEventListener('click', pause);
   $('restartButton').addEventListener('click', startGame);
-  $('homeButton').addEventListener('click', goHome);
+  $('homeButton').addEventListener('click', requestHome);
+  $('cancelHomeButton').addEventListener('click', cancelHomeRequest);
+  $('saveHomeButton').addEventListener('click', saveRoundOnHome);
+  $('endHomeButton').addEventListener('click', () => { if (homeRequest) goHome(); });
+  $('homeDialog').addEventListener('cancel', (event) => { event.preventDefault(); cancelHomeRequest(); });
+  $('resumeGameButton').addEventListener('click', resumeSavedRound);
+  $('endSavedGameButton').addEventListener('click', requestEndSavedGame);
   $('guestPlayButton').addEventListener('click', () => { if (authUser) return; identityChoice = 'guest'; authMessage = ''; updateMode(); updateAvatarPicker(); focusHome(); });
   $('changeIdentityButton').addEventListener('click', () => { if (authUser) return; identityChoice = 'choose'; authMessage = ''; updateMode(); focusHome(); });
   $('googleLoginButton').addEventListener('click', () => { void authClient.signIn('google'); });

@@ -39,11 +39,14 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
       textContent: '', value: '', hidden: false, disabled: false, dataset: {}, attrs: {}, listeners: {},
       tagName: id.endsWith('Select') ? 'SELECT' : id === 'playerInput' || id === 'opponentInput' || id.startsWith('avatar-') ? 'INPUT' : id.endsWith('Button') ? 'BUTTON' : 'CANVAS',
       setAttribute(name, value) { this.attrs[name] = value; },
+      getAttribute(name) { return this.attrs[name] ?? null; },
       addEventListener(name, callback) { this.listeners[name] = handle(callback); },
       focus() { focused = id; },
       closest(selector) { return selector === 'button' && this.tagName === 'BUTTON' ? this : null; },
       getBoundingClientRect: () => ({ width: 720, height: 600 }),
       setPointerCapture: noop,
+      showModal() { this.open = true; },
+      close() { this.open = false; },
     });
     return elements.get(id);
   }
@@ -76,6 +79,7 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   }));
   const document = {
     getElementById: element, querySelector: element, querySelectorAll: () => touchButtons, hidden: false,
+    get activeElement() { return focused ? element(focused) : null; },
     addEventListener: (name, callback) => { documentEvents[name] = callback; },
   };
   let engine;
@@ -814,6 +818,8 @@ test('home offers the selected map/play type, opens setup, and safely cancels a 
   assert.equal(g.state(), 'countdown');
   assert.equal(g.element('homeIntro').hidden, true);
   g.click('homeButton');
+  assert.equal(g.element('homeDialog').open, true);
+  g.click('endHomeButton');
   assert.equal(g.state(), 'ready');
   assert.equal(g.element('homeIntro').hidden, false);
   assert.equal(g.element('countdown').hidden, true);
@@ -822,6 +828,80 @@ test('home offers the selected map/play type, opens setup, and safely cancels a 
   g.frame(10000);
   assert.equal(g.state(), 'ready');
   assert.equal(g.engine.elapsedMs, 0);
+});
+
+test('Home asks before leaving, freezes the round, blocks restart shortcuts and Escape cancels safely', () => {
+  const g=load();g.click('playButton');eat(g);
+  const before=JSON.stringify(g.engine);
+  g.click('homeButton');
+  assert.equal(g.state(),'paused');assert.equal(g.element('homeDialog').open,true);
+  assert.equal(g.focus(),'cancelHomeButton');
+  g.key('Tab');assert.equal(g.focus(),'saveHomeButton');
+  g.key('Tab',{shiftKey:true});assert.equal(g.focus(),'cancelHomeButton');
+  g.key('Tab',{shiftKey:true});assert.equal(g.focus(),'endHomeButton');
+  g.key('Tab');assert.equal(g.focus(),'cancelHomeButton');
+  g.frame(10000);g.key('r');g.click('restartButton');
+  assert.equal(JSON.stringify(g.engine),before);
+  g.key('Escape');
+  assert.equal(g.element('homeDialog').open,false);assert.equal(g.state(),'playing');
+  assert.equal(JSON.stringify(g.engine),before);
+});
+
+test('Resume later keeps solo, team and AI rounds frozen on Home without losing any engine state', () => {
+  for(const type of ['solo','team','ai']){
+    const g=load();selectRecordCategory(g,'classic',type==='team'?'2':type==='ai'?'ai':'1');
+    g.click('playButton');eat(g);
+    g.engine.players[0].shieldUntil=g.engine.elapsedMs+8000;
+    g.engine.slowUntil=g.engine.elapsedMs+6000;
+    const before=JSON.stringify(g.engine);
+    g.click('homeButton');g.click('saveHomeButton');
+    assert.equal(g.state(),'ready');assert.equal(g.element('homeResume').hidden,false);
+    assert.equal(g.element('homeSetup').hidden,true);assert.equal(g.focus(),'resumeGameButton');
+    assert.equal(g.element('modeSelect').disabled,true);
+    assert.match(g.element('homeResumeSummary').textContent,/Level 1.*Score/);
+    g.frame(100000);
+    g.element('modeSelect').value='maze';g.element('modeSelect').listeners.change();
+    assert.equal(JSON.stringify(g.engine),before);
+    g.click('resumeGameButton');
+    assert.equal(g.state(),'playing');assert.equal(g.element('homeResume').hidden,true);
+    assert.equal(JSON.stringify(g.engine),before);
+  }
+});
+
+test('Home preserves a partially finished countdown and an already paused round', () => {
+  const g=load({autoCountdown:false});g.click('playButton');
+  for(const time of [0,200,400,600,800,1000,1200])g.frame(time);
+  assert.equal(g.element('countdownNumber').textContent,'2');
+  g.click('homeButton');g.click('saveHomeButton');g.frame(100000);g.click('resumeGameButton');
+  assert.equal(g.state(),'countdown');assert.equal(g.element('countdownNumber').textContent,'2');
+  g.frame(100100);g.frame(100300);
+  assert.equal(g.element('countdownNumber').textContent,'2');
+  g.click('pauseButton');const title=g.element('overlayTitle').textContent;
+  g.click('homeButton');g.click('saveHomeButton');g.click('resumeGameButton');
+  assert.equal(g.state(),'paused');assert.equal(g.element('overlayTitle').textContent,title);
+});
+
+test('a saved round is discarded only after confirmation, and ending it unlocks setup', () => {
+  const g=load();g.click('playButton');eat(g);
+  g.click('homeButton');g.click('saveHomeButton');
+  const before=JSON.stringify(g.engine);
+  g.key('r');assert.equal(g.element('homeDialog').open,true);
+  assert.equal(g.element('saveHomeButton').hidden,true);
+  g.key('Escape');assert.equal(g.element('homeResume').hidden,false);
+  assert.equal(JSON.stringify(g.engine),before);
+  g.click('endSavedGameButton');g.click('endHomeButton');
+  assert.equal(g.state(),'ready');assert.equal(g.engine.score,0);
+  assert.equal(g.element('homeResume').hidden,true);assert.equal(g.element('modeSelect').disabled,false);
+});
+
+test('signing out ends the saved round rather than resuming it under another identity', () => {
+  const g=load({autoGuest:false,authModule:mockedAuth()});
+  g.click('googleLoginButton');g.click('playButton');eat(g);
+  g.click('homeButton');g.click('saveHomeButton');
+  assert.equal(g.element('homeResume').hidden,false);
+  g.click('settingsSignOutButton');
+  assert.equal(g.state(),'ready');assert.equal(g.element('homeResume').hidden,true);
+  assert.equal(g.engine.score,0);assert.equal(g.element('authChoices').hidden,false);
 });
 
 test('1 → 2 → 3 → GO freezes all snakes and timers until the round starts', () => {
@@ -887,6 +967,7 @@ test('blur and Escape pause the countdown without skipping numbers on resume', (
   g.element('gameStats').open = true;
   g.click('homeButton');
   assert.equal(g.element('gameStats').open, false);
+  g.click('endHomeButton');
   assert.equal(g.state(), 'ready');
 });
 
@@ -1399,6 +1480,7 @@ test('reading instructions freezes play and countdown, and resume or Home closes
   countdown.element('gameHelp').open = true;
   countdown.click('homeButton');
   assert.equal(countdown.element('gameHelp').open, false);
+  countdown.click('endHomeButton');
   assert.equal(countdown.state(), 'ready');
 });
 
@@ -1770,6 +1852,10 @@ test('winter shelter starts a faster summer with five more animals per target an
   assert.equal(g.engine.level, 1);
   assert.match(g.element('overlayTitle').textContent, /Winter is coming/);
   assert.equal(g.element('frogProgressText').textContent, '10/10');
+  g.click('homeButton');g.click('saveHomeButton');g.frame(1000);g.click('resumeGameButton');
+  assert.equal(g.state(),'level-complete');
+  assert.match(g.element('overlayTitle').textContent,/Winter is coming/);
+  assert.equal(g.element('hurray').audiblePlays,1,'resuming does not replay the celebration');
   g.click('playButton');
   const den = g.engine.den;
   const delta = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] }[den.side];
@@ -1777,6 +1863,8 @@ test('winter shelter starts a faster summer with five more animals per target an
   g.engine.direction = { left: 'left', right: 'right', top: 'up', bottom: 'down' }[den.side];
   g.frame(1000); g.frame(1200); g.frame(1400);
   assert.equal(g.state(), 'season-transition');
+  g.click('homeButton');g.click('saveHomeButton');g.frame(1500);g.click('resumeGameButton');
+  assert.equal(g.state(),'season-transition');
   g.click('pauseButton');
   g.frame(2000); g.frame(3000);
   assert.equal(g.state(), 'paused'); assert.equal(g.engine.level, 1);

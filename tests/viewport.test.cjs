@@ -417,12 +417,54 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await page.clock.runFor(2600);
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
           await page.locator('#homeButton').click();
+          assert.equal(await page.locator('#homeDialog').isVisible(), true);
+          await page.locator('#endHomeButton').click();
           assert.equal(await page.locator('#authPanel').isVisible(), true);
           await page.clock.runFor(5000);
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'ready');
           assert.equal(await page.evaluate(() => window.homeTestEngine.elapsedMs), 0);
           assert.deepEqual(errors, []);
         } finally { await context.close(); }
+      });
+    }
+    for (const [width,height] of [[320,568],[844,390]]) {
+      await t.test(`Home confirmation and exact resume · ${width}×${height}`,async()=>{
+        const context=await browser.newContext({viewport:{width,height},hasTouch:true,isMobile:true});
+        try{
+          const page=await createTestPage(context);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+          await page.goto(pathToFileURL(join(__dirname,'..','index.html')).href);
+          await page.evaluate(()=>{const reset=SnakeGame.prototype.reset;SnakeGame.prototype.reset=function(options){const result=reset.call(this,options);window.resumeEngine=this;return result;};});
+          await page.locator('#playerInput').fill('Long player name Alex');
+          await page.locator('#playersSelect').selectOption('1');await startPlaying(page);await page.clock.runFor(600);
+          await page.locator('#homeButton').click();
+          assert.equal(await page.locator('#homeDialog').isVisible(),true);
+          const frozen=await page.evaluate(()=>JSON.stringify(window.resumeEngine));
+          await page.clock.runFor(5000);
+          assert.equal(await page.evaluate(()=>JSON.stringify(window.resumeEngine)),frozen);
+          for(let i=0;i<4;i++){await page.keyboard.press('Tab');assert.equal(await page.locator('#homeDialog').evaluate(d=>d.contains(document.activeElement)),true);}
+          const fits=await page.locator('#homeDialog').evaluate(d=>{const r=d.getBoundingClientRect();return r.top>=0&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;});
+          assert.equal(fits,true);await page.keyboard.press('Escape');
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'),'playing');
+          await page.locator('#homeButton').click();await page.locator('#saveHomeButton').click();
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'),'ready');
+          assert.equal(await page.locator('#homeResume').isVisible(),true);
+          assert.equal(await page.locator('#modeSelect').isDisabled(),true);
+          const saved=await page.evaluate(()=>JSON.stringify(window.resumeEngine));await page.clock.runFor(10000);
+          assert.equal(await page.evaluate(()=>JSON.stringify(window.resumeEngine)),saved);
+          await page.keyboard.press('r');assert.equal(await page.locator('#homeDialogTitle').textContent(),'End your saved game?');
+          await page.locator('#cancelHomeButton').click();
+          await page.locator('#resumeGameButton').scrollIntoViewIfNeeded();
+          assert.equal(await page.locator('#resumeGameButton').evaluate(b=>{const r=b.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&scrollY===0;}),true);
+          const restored=await page.evaluate(()=>{document.getElementById('resumeGameButton').click();return JSON.stringify(window.resumeEngine);});
+          assert.equal(restored,saved);
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'),'playing');
+          await page.locator('#homeButton').click();await page.locator('#endHomeButton').click();
+          assert.equal(await page.locator('#homeResume').isVisible(),false);
+          assert.equal(await page.locator('#homeSetup').isVisible(),true);
+          assert.equal(await page.locator('#modeSelect').isDisabled(),false);
+          assert.equal(await page.evaluate(()=>window.resumeEngine.elapsedMs),0);
+          assert.deepEqual(errors,[]);
+        }finally{await context.close();}
       });
     }
     for (const [width, height] of [[1280, 800], [375, 667]]) {

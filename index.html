@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101e25">
   <title>Snake Club — Play, grow, enjoy.</title>
-  <link rel="stylesheet" href="style.css?v=chart-sun1">
+  <link rel="stylesheet" href="style.css?v=resume1">
   <script src="snake-engine.js?v=winter2" defer></script>
   <script src="snake-ai.js?v=seasons1" defer></script>
   <script src="snake-skins.js?v=skins1" defer></script>
@@ -19,7 +19,7 @@
   <script src="snake-breaks.js?v=accounts1" defer></script>
   <script src="snake-voice.js?v=clock1" defer></script>
   <script src="snake-winter.js?v=winter2" defer></script>
-  <script src="game.js?v=chart-sun1" defer></script>
+  <script src="game.js?v=resume1" defer></script>
 </head>
 <body>
   <main class="app">
@@ -76,7 +76,7 @@
                 <li><strong>Solo / AI Arena:</strong> use WASD or arrow keys.</li>
                 <li><strong>Two players:</strong> Player 1 uses WASD; Player 2 uses arrow keys. On touchscreens, use the labeled direction pads. Swiping the board steers Player 1.</li>
                 <li>You cannot reverse directly into yourself. Two legal turns can be queued; you can choose your first turn during the countdown.</li>
-                <li><strong>Space:</strong> start, pause, or resume. <strong>Escape:</strong> pause or close an open panel. <strong>R:</strong> restart. <strong>Home:</strong> leave the round and return to setup. In Settings → More options, enable break auto-pause and choose 1–60 minutes (default 2). Pauses, Home, countdown, and new rounds reset this uninterrupted-play timer; Resume starts it again. The red-on-black digital clock shows play time and the next break; the final ten seconds are spoken when sound and browser speech are available.</li>
+                <li><strong>Space:</strong> start, pause, or resume. <strong>Escape:</strong> pause or close an open panel. <strong>R:</strong> restart. <strong>Home:</strong> choose Cancel, Resume later, or End game. Resume later pauses the round and adds a Resume game button on Home, preserving score, snakes, items, countdown and winter entry. The paused round stays in this tab only; refreshing, closing it, or changing accounts ends it. End the saved game to change gameplay setup. In Settings → More options, enable break auto-pause and choose 1–60 minutes (default 2). Pauses, Home, countdown, and new rounds reset this uninterrupted-play timer; Resume starts it again. The red-on-black digital clock shows play time and the next break; the final ten seconds are spoken when sound and browser speech are available.</li>
                 <li>Maps, player count, and food density lock during play, countdown, and pause. Return Home to change them. Skins and backdrops can be changed without resetting a round.</li>
               </ul>
             </section>
@@ -250,6 +250,12 @@
             </details>
             <div class="opponent-entry" id="opponentEntry"><label for="opponentInput">Player 2 · arrow keys</label><input id="opponentInput" name="opponent" type="text" maxlength="24" autocomplete="off" value="Player 2" aria-describedby="opponentHint" required><span id="opponentHint">Share the keyboard with a friend.</span></div>
           </div>
+          <section class="home-resume" id="homeResume" aria-label="Paused game" hidden>
+            <strong>You have a paused game</strong><p id="homeResumeSummary"></p>
+            <button id="resumeGameButton" type="button">▶ RESUME GAME</button>
+            <button id="endSavedGameButton" type="button">End game &amp; change setup</button>
+            <small>Kept in this tab only. Refreshing or closing the tab ends the paused game.</small>
+          </section>
           <div class="home-setup" id="homeSetup" hidden>
             <div class="mode-controls">
               <label for="playersSelect">Play</label>
@@ -280,6 +286,16 @@
       <div class="touch-controls" id="playerOneControls" role="group" aria-label="Player 1 direction controls"><button type="button" data-direction="up" aria-label="Move up">↑</button><button type="button" data-direction="left" aria-label="Move left">←</button><span id="playerOneControlsLabel" aria-hidden="true">P1 · WASD</span><button type="button" data-direction="right" aria-label="Move right">→</button><button type="button" data-direction="down" aria-label="Move down">↓</button></div>
       <div class="touch-controls player-two-controls" id="playerTwoControls" role="group" aria-label="Player 2 direction controls"><button type="button" data-player="1" data-direction="up" aria-label="Player 2 move up">↑</button><button type="button" data-player="1" data-direction="left" aria-label="Player 2 move left">←</button><span id="playerTwoControlsLabel" aria-hidden="true">P2 · ARROWS</span><button type="button" data-player="1" data-direction="right" aria-label="Player 2 move right">→</button><button type="button" data-player="1" data-direction="down" aria-label="Player 2 move down">↓</button></div>
     </div>
+    <dialog class="home-dialog" id="homeDialog" aria-labelledby="homeDialogTitle" aria-describedby="homeDialogMessage homeDialogNote">
+      <h2 id="homeDialogTitle">Leave this game?</h2>
+      <p id="homeDialogMessage">End this round, or pause it and resume later from Home.</p>
+      <p class="home-dialog-note" id="homeDialogNote">Paused games are kept in this tab only. Refreshing or closing the tab ends them.</p>
+      <div class="home-dialog-actions">
+        <button id="cancelHomeButton" type="button" autofocus>CANCEL</button>
+        <button id="saveHomeButton" type="button">RESUME LATER · GO HOME</button>
+        <button id="endHomeButton" type="button">END GAME · GO HOME</button>
+      </div>
+    </dialog>
     <div class="sr-only" id="announcer" aria-live="polite" aria-atomic="true"></div>
   </main>
 </body>
