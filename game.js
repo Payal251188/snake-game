@@ -3,8 +3,10 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true, combosEnabled: true });
+  const engine = new SnakeGame({ mode: 'obstacles', playerCount: 2, foodCount: 5, mushroomCount: 4, animatedFood: true, powerupsEnabled: true, combosEnabled: true, teamMode: true });
   const storageKey = 'snake-club-record-v3';
+  const headerPanels = { gameSettings: 'settingsSummary', gameHelp: 'helpSummary', gameStats: 'statsSummary' };
+  function closeHeaderPanels() { for (const id of Object.keys(headerPanels)) $(id).open = false; }
   const playerKey = 'snake-club-player-v1';
   const avatarKey = 'snake-club-avatar-v1';
   const skinKey = 'snake-club-skin-v1';
@@ -14,6 +16,17 @@
   const opponentKey = 'snake-club-player-two-v1';
   const aiCountKey = 'snake-club-ai-count-v1';
   const foodKey = 'snake-club-food-count-v1';
+  const teamKey = 'snake-club-team-v1';
+  const breakKey = 'snake-club-breaks-v1';
+  const breakTimer = SnakeBreaks.create();
+  let breakLastTime = null;
+  const authConfig = window.SNAKE_AUTH_CONFIG || {};
+  let authUser = null;
+  let identityChoice = 'choose';
+  let authBusy = false;
+  let authMessage = '';
+  let guestName = '';
+  let teamName = 'Snake Squad';
   let preferredAICount = 3;
   const modes = {
     classic: { name: 'Classic', hint: 'Edges wrap. Avoid your own body.' },
@@ -36,16 +49,16 @@
   let best = 0;
   let bestName = '';
   const records = new Map();
-  const recordType = () => engine.aiCount ? 'ai' : engine.playerCount === 2 ? 'versus' : 'solo';
+  const recordType = () => engine.aiCount ? 'ai' : engine.playerCount === 2 ? 'team' : 'solo';
   const recordKey = () => `${engine.mode}:${recordType()}`;
-  const recordLabel = () => `${modes[engine.mode].name} · ${{ solo: 'Solo', versus: 'Local versus', ai: 'AI Arena' }[recordType()]}`;
+  const recordLabel = () => `${modes[engine.mode].name} · ${{ solo: 'Solo', team: 'Local team', ai: 'AI Arena' }[recordType()]}`;
   let playerName = '';
   let opponentName = 'Player 2';
   const nameFor = (index) => index === 0 ? playerName || 'Player 1' : engine.players[index]?.ai ? `AI ${index}` : opponentName;
   const steeringHint = () => engine.aiCount
     ? `Use WASD or arrow keys. Compete against ${engine.aiCount} AI snakes. Last snake standing wins; crashed bots disappear.`
     : engine.playerCount === 2
-    ? 'Player 1: W A S D. Player 2: arrow keys. Avoid both snakes. Last snake standing wins; simultaneous crashes draw.'
+    ? 'Team play: P1 uses WASD; P2 uses arrow keys. Add your points together. Any unshielded crash ends the team run.'
     : 'Use arrow keys or W A S D to steer.';
   let startingBest = 0;
   let roundNumber = 0;
@@ -140,6 +153,8 @@
       $('legacyRecord').textContent = `Previous overall best: ${record.score} by ${record.name} (game type unknown).`;
     }
     playerName = cleanName(localStorage.getItem(playerKey));
+    teamName = cleanName(localStorage.getItem(teamKey)) || 'Snake Squad';
+    try { breakTimer.configure(JSON.parse(localStorage.getItem(breakKey))); } catch { /* Invalid preferences use the defaults. */ }
     opponentName = cleanName(localStorage.getItem(opponentKey)) || 'Player 2';
     const savedAI = Number(localStorage.getItem(aiCountKey));
     if ([2, 3].includes(savedAI)) preferredAICount = savedAI;
@@ -156,6 +171,11 @@
     if (Object.hasOwn(modes, savedMode)) engine.reset({ mode: savedMode });
   } catch { storageUnavailable(); }
 
+  guestName = playerName;
+  $('teamInput').value = teamName;
+  $('breakToggle').checked = breakTimer.settings.enabled;
+  $('breakMinutes').value = String(breakTimer.settings.minutes);
+  $('breakOptions').hidden = !breakTimer.settings.enabled;
   $('playerInput').value = playerName;
   $('opponentInput').value = opponentName;
   for (const id of Object.keys(avatars)) {
@@ -168,6 +188,76 @@
       if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); }
     });
   }
+  function focusHome() {
+    $(identityChoice === 'choose' ? 'guestPlayButton' : authUser ? 'playButton' : 'playerInput').focus({ preventScroll: true });
+  }
+
+  function syncIdentityUI() {
+    const home = state === 'ready';
+    $('authPanel').hidden = !home;
+    $('authChoices').hidden = identityChoice !== 'choose';
+    $('authSession').hidden = identityChoice === 'choose';
+    $('playerEntry').hidden = !home || identityChoice !== 'guest';
+    $('teamEntry').hidden = !home || engine.playerCount !== 2 || identityChoice === 'choose';
+    $('playButton').hidden = home && identityChoice === 'choose';
+    $('signOutButton').hidden = !authUser;
+    $('settingsSignOutButton').hidden = !authUser;
+    $('changeIdentityButton').hidden = Boolean(authUser);
+    $('googleLoginButton').disabled = authBusy;
+    $('facebookLoginButton').disabled = authBusy;
+    $('signOutButton').disabled = authBusy;
+    $('settingsSignOutButton').disabled = authBusy;
+    $('inviteFriendsButton').hidden = authUser?.provider !== 'facebook';
+    const identity = authUser ? `${authUser.name} · ${authUser.provider === 'facebook' ? 'Facebook' : 'Google'}` : 'Playing without login';
+    $('accountIdentity').textContent = identity;
+    $('settingsAccountName').textContent = authUser ? identity : 'Guest play · records stay on this device';
+    $('authStatus').textContent = authMessage || (identityChoice === 'choose'
+      ? SnakeAuth.configured(authConfig) ? 'Sign in or play as a guest. Scores keep the scorer’s name.' : 'Social sign-in needs setup. You can play without login now.'
+      : authUser ? 'Your profile name is used for scores. Best records remain on this device.' : 'Enter your name below. Your records count just like signed-in players.');
+    document.querySelector('.game-shell').dataset.identity = identityChoice;
+    if (home && identityChoice === 'choose') $('overlayTitle').textContent = 'Choose how to play';
+    else if (home && authUser) $('overlayTitle').textContent = `Ready, ${authUser.name}?`;
+  }
+
+  function handleAuth(snapshot) {
+    const previous = authUser;
+    authUser = snapshot.user;
+    authBusy = snapshot.busy;
+    authMessage = snapshot.message || '';
+    const changed = previous?.id !== authUser?.id || previous?.provider !== authUser?.provider;
+    if (authUser) {
+      identityChoice = 'account';
+      playerName = cleanName(authUser.name);
+      $('playerInput').value = playerName;
+    } else if (previous) {
+      identityChoice = 'choose';
+      playerName = guestName;
+      $('playerInput').value = guestName;
+    }
+    if (changed && state !== 'ready') goHome();
+    updateAvatarPicker();
+    updateMode();
+    updateScores();
+    if (changed && state === 'ready') focusHome();
+  }
+
+  function saveBreakSettings() {
+    const minutes = Number($('breakMinutes').value);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
+      $('breakMinutes').value = String(breakTimer.settings.minutes);
+      announce('Choose a whole number of minutes from 1 to 60.');
+      return;
+    }
+    breakTimer.configure({ enabled: $('breakToggle').checked, minutes });
+    breakLastTime = null;
+    $('breakOptions').hidden = !breakTimer.settings.enabled;
+    $('breakMinutes').disabled = !breakTimer.settings.enabled;
+    if (canSave) {
+      try { localStorage.setItem(breakKey, JSON.stringify(breakTimer.settings)); } catch { storageUnavailable(); }
+    }
+    announce(breakTimer.settings.enabled ? `Break auto-pause enabled after ${minutes} uninterrupted minute${minutes === 1 ? '' : 's'}.` : 'Break auto-pause is off.');
+  }
+
   function updateAvatarPicker() {
     const hasName = Boolean(cleanName($('playerInput').value));
     $('avatarPicker').disabled = !hasName;
@@ -249,13 +339,13 @@
     const dual = engine.playerCount === 2;
     $('opponentEntry').hidden = !dual;
     $('opponentInput').required = dual;
-    $('opponentScoreGroup').hidden = !dual && !engine.aiCount;
+    $('opponentScoreGroup').hidden = !engine.aiCount;
     $('opponentIdentity').hidden = !dual && !engine.aiCount;
     $('opponentScoreLabel').textContent = engine.aiCount ? 'AI LEFT' : 'P2 SCORE';
     $('opponentControlsLabel').textContent = engine.aiCount ? 'AI ARENA' : 'P2 · ARROWS';
     $('playerTwoControls').hidden = !dual;
     $('playerOneControlsLabel').textContent = dual ? 'P1 · WASD' : 'STEER';
-    $('scoreLabel').textContent = dual ? 'P1 SCORE' : 'YOUR SCORE';
+    $('scoreLabel').textContent = dual ? 'TEAM SCORE' : 'YOUR SCORE';
     $('playerInputLabel').textContent = dual ? `Player 1 · ${SnakeSkins.get(playerSkin).name} · WASD` : 'Who’s playing?';
     $('controlsHint').textContent = steeringHint();
     $('modeHint').textContent = modes[engine.mode].hint;
@@ -265,9 +355,10 @@
     if (state === 'ready') {
       $('playLabel').textContent = 'LET’S PLAY';
       $('overlayTag').textContent = `${modes[engine.mode].name.toUpperCase()} MODE`;
-      $('overlayTitle').textContent = engine.aiCount ? `You vs ${engine.aiCount} AI snakes.` : dual ? 'Two snakes. One arena.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
-      $('overlayText').textContent = `${modes[engine.mode].hint}\n${engine.aiCount ? steeringHint() : dual ? 'P1: WASD · P2: arrow keys. Last snake standing wins.' : 'Choose Obstacles, Maze, or Classic in Settings, then play.'}`;
+      $('overlayTitle').textContent = engine.aiCount ? `You vs ${engine.aiCount} AI snakes.` : dual ? 'One team. Two snakes.' : engine.wraps ? 'Small snake. Big plans.' : 'Watch your step.';
+      $('overlayText').textContent = `${modes[engine.mode].hint}\n${engine.aiCount ? steeringHint() : dual ? 'P1: WASD · P2: arrow keys. Combine your catches and avoid collisions together.' : 'Choose Obstacles, Maze, or Classic in Settings, then play.'}`;
     }
+    syncIdentityUI();
     canvas.setAttribute('aria-label', `Snake board. ${modes[engine.mode].name} mode. ${steeringHint()} Catch rats, rabbits, and frogs. ${modes[engine.mode].hint} Space pauses.`);
   }
   $('modeSelect').addEventListener('change', () => {
@@ -297,7 +388,7 @@
     updateMode();
     updateScores();
     draw();
-    announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player versus' : 'Solo'} selected. ${steeringHint()}`);
+    announce(`${engine.aiCount ? 'AI Arena' : playerCount === 2 ? 'Two-player team' : 'Solo'} selected. ${steeringHint()}`);
   });
   $('aiCountSelect').addEventListener('change', () => {
     if (['playing', 'countdown', 'paused'].includes(state)) return;
@@ -377,7 +468,13 @@
     $('recordType').textContent = recordLabel();
     $('best').setAttribute('title', `${recordLabel()} best${bestName ? ` by ${bestName}` : ''}`);
     $('best').setAttribute('aria-label', `${recordLabel()} best score: ${best}`);
-    $('score').textContent = format(engine.score);
+    $('score').textContent = format(engine.isTeam ? engine.totalScore : engine.score);
+    $('teamNameBanner').hidden = !engine.isTeam;
+    $('teamNameBanner').textContent = engine.isTeam ? `TEAM · ${teamName}` : '';
+    $('playerOneScore').hidden = !engine.isTeam;
+    $('playerTwoScore').hidden = !engine.isTeam;
+    $('playerOneScore').textContent = `${engine.players[0].score} pts`;
+    $('playerTwoScore').textContent = `${engine.players[1]?.score || 0} pts`;
     const livingBots = engine.players.filter((player) => player.ai && player.alive).length;
     $('opponentScore').textContent = format(engine.aiCount ? livingBots : engine.players[1]?.score || 0);
     $('opponentName').textContent = engine.aiCount ? `${livingBots}/${engine.aiCount} alive` : opponentName;
@@ -397,6 +494,7 @@
     $('level').textContent = String(engine.level);
     $('arenaLevel').textContent = String(engine.level);
     $('levelSpeed').textContent = speed;
+    $('helpCurrent').textContent = `Current setup: ${recordLabel()} — Level ${engine.level}, ${speed}, ${Math.round(engine.interval)} ms per cell${engine.slowRemainingMs ? ' (slow motion active)' : ''}.`;
     $('totalEaten').textContent = String(engine.totalCatches);
     $('goldenCount').textContent = String(engine.goldenCaught);
     $('mushroomCount').textContent = String(engine.mushroomCaught);
@@ -425,8 +523,7 @@
     sceneDirty = true;
     const active = ['playing', 'countdown', 'paused'].includes(state);
     if (state === 'playing' || state === 'countdown') {
-      $('gameSettings').open = false;
-      $('gameStats').open = false;
+      closeHeaderPanels();
     }
     if (state === 'paused' || state === 'over' || state === 'won') resetCheer();
     document.querySelector('.game-shell').dataset.state = state;
@@ -446,6 +543,9 @@
     $('pauseButton').disabled = !active;
     $('pauseButton').textContent = state === 'paused' ? '▷ RESUME' : 'Ⅱ PAUSE';
     $('pauseButton').setAttribute('aria-label', state === 'paused' ? 'Resume game' : 'Pause game');
+    breakTimer.reset();
+    breakLastTime = null;
+    syncIdentityUI();
     lastTime = null;
     countdownLastTime = null;
     gesture = null;
@@ -573,7 +673,16 @@
 
   function startGame() {
     if (state === 'countdown') return;
-    const name = cleanName($('playerInput').value);
+    if (identityChoice === 'choose') { announce('Choose Google, Facebook, or Play without login first.'); $('guestPlayButton').focus({ preventScroll: true }); return; }
+    const name = authUser ? authUser.name : cleanName($('playerInput').value);
+    if (engine.playerCount === 2 && !cleanName($('teamInput').value)) {
+      $('teamEntry').hidden = false;
+      $('teamInput').setAttribute('aria-invalid', 'true');
+      $('teamHint').textContent = 'Please enter a team name.';
+      $('teamInput').focus({ preventScroll: true });
+      return;
+    }
+    if (engine.playerCount === 2) teamName = cleanName($('teamInput').value);
     if (!name) {
       if (state === 'playing') pause();
       $('playerEntry').hidden = false;
@@ -604,7 +713,8 @@
     updateAvatarPicker();
     if (canSave) {
       try {
-        localStorage.setItem(playerKey, playerName);
+        if (!authUser) { guestName = playerName; localStorage.setItem(playerKey, playerName); }
+        if (engine.playerCount === 2) localStorage.setItem(teamKey, teamName);
         localStorage.setItem(avatarKey, playerAvatar);
         localStorage.setItem(opponentKey, opponentName);
       } catch { storageUnavailable(); }
@@ -645,8 +755,7 @@
   }
 
   function goHome() {
-    $('gameSettings').open = false;
-    $('gameStats').open = false;
+    closeHeaderPanels();
     countdownElapsed = 0;
     pausedCountdown = false;
     elapsed = 0;
@@ -660,7 +769,7 @@
     updateMode();
     updateScores();
     draw();
-    $('playerInput').focus({ preventScroll: true });
+    focusHome();
     announce('Welcome home. Choose your map and players, then play.');
   }
 
@@ -678,18 +787,17 @@
     const comboNotice = engine.lastEvents.filter((event) => event.type === 'combo-bonus').map((event) => `${nameFor(event.playerIndex)}: ${event.streak}-animal chain! +${event.bonus} combo bonus.`).join(' ');
     const shieldNotice = engine.lastEvents.filter((event) => event.type === 'shield-block').map((event) => `${nameFor(event.playerIndex)}: shield absorbed a hit! Turn to safety.`).join(' ');
     if (engine.lastCatches.length) {
-      for (const { playerIndex } of engine.lastCatches) {
-        if (engine.players[playerIndex].ai) continue; // Bots never replace human records.
-        const score = engine.players[playerIndex].score;
-        if (score > best) {
-          best = score;
-          bestName = nameFor(playerIndex);
-          roundRecordPlayer = playerIndex;
-          records.set(recordKey(), { score: best, name: bestName });
-          if (canSave) {
-            try { localStorage.setItem(`${storageKey}:${recordKey()}`, JSON.stringify({ score: best, name: bestName })); }
-            catch { storageUnavailable(); }
-          }
+      const candidates = engine.isTeam ? [{ score: engine.totalScore, name: teamName, index: 'team' }]
+        : engine.lastCatches.filter(({ playerIndex }) => !engine.players[playerIndex].ai).map(({ playerIndex }) => ({ score: engine.players[playerIndex].score, name: nameFor(playerIndex), index: playerIndex }));
+      for (const candidate of candidates) {
+        if (candidate.score <= best) continue;
+        best = candidate.score;
+        bestName = candidate.name;
+        roundRecordPlayer = candidate.index;
+        records.set(recordKey(), { score: best, name: bestName });
+        if (canSave) {
+          try { localStorage.setItem(`${storageKey}:${recordKey()}`, JSON.stringify({ score: best, name: bestName })); }
+          catch { storageUnavailable(); }
         }
       }
       updateScores();
@@ -747,14 +855,12 @@
           : `You ${reasons[engine.collision] || 'crashed'}.`;
         showOverlay('AI ARENA COMPLETE', title, `${cause}\n${scores}`, 'REMATCH', 'or press space for a rematch');
         announce(`${title} ${cause} ${scores}`);
-      } else if (engine.playerCount === 2) {
-        const title = engine.winner === null ? 'It’s a draw!' : `${nameFor(engine.winner)} wins!`;
-        const scores = `P1 ${playerName}: ${engine.players[0].score} · P2 ${opponentName}: ${engine.players[1].score}.`;
-        const causes = won ? 'All open cells filled. Highest score wins.' : engine.players
-          .map((player, index) => player.collision ? `${nameFor(index)} ${reasons[player.collision] || 'crashed'}.` : '')
-          .filter(Boolean).join(' ');
-        showOverlay('ROUND COMPLETE', title, `${scores}\n${causes}`, 'REMATCH', 'or press space for a rematch');
-        announce(`${title} ${scores} ${causes}`);
+      } else if (engine.isTeam) {
+        const title = won ? `${teamName} wins!` : `${teamName} · round over`;
+        const scores = `Team score: ${engine.totalScore}. P1 ${playerName}: ${engine.players[0].score} · P2 ${opponentName}: ${engine.players[1].score}.`;
+        const cause = won ? 'You filled the board together!' : engine.players.map((player, index) => player.collision ? `${nameFor(index)} ${reasons[player.collision] || 'crashed'}.` : '').filter(Boolean).join(' ');
+        showOverlay('TEAM ROUND COMPLETE', title, `${scores}\n${cause}`, 'REMATCH', 'or press space for a rematch');
+        announce(`${title} ${scores} ${cause}`);
       } else {
         const lossReason = engine.collision ? `You ${reasons[engine.collision] || 'crashed'}.` : 'Game over.';
         showOverlay(won ? 'EVERY LAST BITE' : engine.score > startingBest ? 'A NEW CLUB RECORD' : 'EVERY END IS A NEW BEGINNING',
@@ -772,7 +878,7 @@
       const player = index < engine.playerCount ? engine.players[index] : null;
       $(`result${index}Card`).hidden = !player;
       if (!player) continue;
-      const result = SnakeRewards.summary(player, { goal: roundGoal, newRecord: roundRecordPlayer === index && player.score > startingBest });
+      const result = SnakeRewards.summary(player, { goal: roundGoal, newRecord: engine.isTeam ? roundRecordPlayer === 'team' && engine.totalScore > startingBest : roundRecordPlayer === index && player.score > startingBest });
       $(`result${index}Name`).textContent = nameFor(index);
       $(`result${index}Score`).textContent = String(result.score);
       $(`result${index}Time`).textContent = result.time;
@@ -915,19 +1021,23 @@
   });
 
   const directionKeys = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
-  for (const [id, other] of [['gameSettings', 'gameStats'], ['gameStats', 'gameSettings']]) {
+  for (const id of Object.keys(headerPanels)) {
     $(id).addEventListener('toggle', () => {
       if (!$(id).open) return;
-      $(other).open = false;
+      for (const other of Object.keys(headerPanels)) if (other !== id) $(other).open = false;
       if (state === 'playing' || state === 'countdown') pause();
+      if (id === 'gameHelp') {
+        $('helpPanel').scrollTop = 0;
+        $('helpPanel').focus({ preventScroll: true });
+      }
     });
   }
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && ($('gameSettings').open || $('gameStats').open)) {
+    const openPanel = Object.keys(headerPanels).find((id) => $(id).open);
+    if (event.key === 'Escape' && openPanel) {
       event.preventDefault();
-      const menu = $('gameSettings').open ? 'gameSettings' : 'gameStats';
-      $(menu).open = false;
-      $(menu === 'gameSettings' ? 'settingsSummary' : 'statsSummary').focus({ preventScroll: true });
+      $(openPanel).open = false;
+      $(headerPanels[openPanel]).focus({ preventScroll: true });
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || /^(INPUT|TEXTAREA|SELECT|SUMMARY)$/.test(event.target.tagName) || event.target.isContentEditable || event.target.closest('.settings-panel')) return;
@@ -954,7 +1064,28 @@
   $('pauseButton').addEventListener('click', pause);
   $('restartButton').addEventListener('click', startGame);
   $('homeButton').addEventListener('click', goHome);
+  $('guestPlayButton').addEventListener('click', () => { if (authUser) return; identityChoice = 'guest'; authMessage = ''; updateMode(); updateAvatarPicker(); focusHome(); });
+  $('changeIdentityButton').addEventListener('click', () => { if (authUser) return; identityChoice = 'choose'; authMessage = ''; updateMode(); focusHome(); });
+  $('googleLoginButton').addEventListener('click', () => { void authClient.signIn('google'); });
+  $('facebookLoginButton').addEventListener('click', () => { void authClient.signIn('facebook'); });
+  for (const id of ['signOutButton', 'settingsSignOutButton']) $(id).addEventListener('click', () => { void authClient.signOut(); });
+  $('breakToggle').addEventListener('change', saveBreakSettings);
+  $('breakMinutes').addEventListener('change', saveBreakSettings);
+  $('teamInput').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.repeat) { event.preventDefault(); startGame(); } });
+  $('inviteFriendsButton').addEventListener('click', () => {
+    if (authUser?.provider !== 'facebook') return;
+    if (state === 'playing' || state === 'countdown') pause();
+    const link = SnakeAuth.inviteLink(authConfig, window.location?.href || '');
+    if (!link) { const message = 'Invites need a Facebook app ID and a public HTTPS game URL in auth-config.js.'; authMessage = message; syncIdentityUI(); showNotice(message); announce(message); return; }
+    const popup = window.open(link, 'snake-club-invite', 'popup,width=640,height=520');
+    if (popup) { try { popup.opener = null; } catch { /* Cross-origin popup remains isolated by the browser. */ } }
+    if (!popup) { const message = 'Allow popups to share the game with friends.'; showNotice(message); announce(message); }
+  });
   $('resultHome').addEventListener('click', goHome);
+  $('helpCloseButton').addEventListener('click', () => {
+    $('gameHelp').open = false;
+    $('helpSummary').focus({ preventScroll: true });
+  });
   $('homeSettings').addEventListener('click', () => {
     $('gameSettings').open = true;
     $('playersSelect').focus({ preventScroll: true });
@@ -1032,6 +1163,16 @@
   });
 
   function frame(time) {
+    if (state === 'playing') {
+      const needsBreak = breakTimer.advance(breakLastTime === null ? 0 : Math.max(0, time - breakLastTime));
+      breakLastTime = time;
+      if (needsBreak) {
+        const minutes = breakTimer.settings.minutes;
+        pause();
+        showOverlay('TIME FOR A BREAK', 'Rest your eyes.', `You played for ${minutes} uninterrupted minute${minutes === 1 ? '' : 's'}. Take a break, then resume when you are ready.`, 'RESUME', 'Your round is safely paused.');
+        announce('Time for a break. The game is paused. Resume when you are ready.');
+      }
+    }
     const delta = lastVisualFrame === null ? 0 : Math.min(50, Math.max(0, time - lastVisualFrame));
     lastVisualFrame = time;
     if (state === 'playing') {
@@ -1071,11 +1212,14 @@
     if (state === 'playing' || sceneDirty) draw();
     requestAnimationFrame(frame);
   }
+  const authClient = SnakeAuth.create({ config: authConfig, onChange: handleAuth });
   new ResizeObserver(resize).observe($('boardWrap'));
   resetCheer();
   updateScores();
   setState('ready');
-  $('playerInput').focus({ preventScroll: true });
+  syncIdentityUI();
+  focusHome();
+  if (SnakeAuth.configured(authConfig)) void authClient.initialize();
   resize();
   requestAnimationFrame(frame);
 })();

@@ -11,9 +11,10 @@ try {
   if (error.code !== 'MODULE_NOT_FOUND') throw error;
 }
 
-async function createTestPage(context) {
+async function createTestPage(context, { autoGuest = true } = {}) {
   const page = await context.newPage();
   await page.clock.install();
+  if (autoGuest) await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => document.getElementById('guestPlayButton')?.click()));
   return page;
 }
 
@@ -37,21 +38,21 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
   try {
     for (const [width, height, touch] of sizes) {
       for (const selection of ['2', 'ai']) {
-        await t.test(`${width}×${height}${touch ? ' touch' : ''} · ${selection === 'ai' ? 'AI Arena' : 'local versus'}`, async () => {
+        await t.test(`${width}×${height}${touch ? ' touch' : ''} · ${selection === 'ai' ? 'AI Arena' : 'local team'}`, async () => {
           const context = await browser.newContext({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
           try {
             const page = await createTestPage(context);
             const errors = [];
             page.on('pageerror', (error) => errors.push(error.message));
             await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
-            assert.equal(await page.locator('#homeIntro').isVisible(), true);
+            assert.equal(await page.locator('#authPanel').isVisible(), true);
             const homeFits = await page.locator('#playButton').evaluate((button) => {
               const rect = button.getBoundingClientRect();
               return rect.top >= 0 && rect.bottom <= innerHeight && document.documentElement.scrollHeight <= innerHeight;
             });
             assert.equal(homeFits, true, 'home Play button is visible without scrolling');
             await page.locator('#playerInput').fill('Alex');
-            await page.locator('#homeSettings').click();
+            await page.locator('#settingsSummary').click();
             await page.getByText('Appearance', { exact: true }).click();
             const skin = selection === 'ai' ? 'ember' : 'neon';
             await page.locator('#skinSelect').selectOption(skin);
@@ -109,6 +110,21 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             await page.keyboard.press('Escape');
             assert.equal(await page.locator('#gameSettings').getAttribute('open'), null);
             assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).overflow), 'hidden');
+            await page.locator('#helpSummary').click();
+            assert.equal(await page.locator('#helpTitle').textContent(), 'How to play');
+            assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
+            const helpFits = await page.locator('#helpPanel').evaluate((panel) => {
+              const r = panel.getBoundingClientRect();
+              return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && panel.scrollHeight > panel.clientHeight && panel.scrollWidth <= panel.clientWidth;
+            });
+            assert.equal(helpFits, true, 'instructions fit and scroll inside their panel');
+            await page.locator('#helpPanel').hover();
+            await page.mouse.wheel(0, 600);
+            await page.waitForFunction(() => document.querySelector('#helpPanel').scrollTop > 0);
+            assert.equal(await page.evaluate(() => scrollY), 0);
+            await page.keyboard.press('Escape');
+            assert.equal(await page.locator('#gameHelp').getAttribute('open'), null);
+            assert.equal(await page.locator('#helpSummary').evaluate((summary) => document.activeElement === summary), true);
             await page.evaluate(() => {
               const tick = SnakeGame.prototype.tick;
               SnakeGame.prototype.tick = function () {
@@ -127,7 +143,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             });
             assert.deepEqual(resultsFit, { play: true, home: true, cards: true, noScroll: true });
             await page.locator('#resultHome').click();
-            assert.equal(await page.locator('#homeIntro').isVisible(), true);
+            assert.equal(await page.locator('#authPanel').isVisible(), true);
             assert.deepEqual(errors, []);
           } finally {
             await context.close();
@@ -315,7 +331,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
             };
           });
           await page.locator('#playerInput').fill('Alex');
-          await page.locator('#homeSettings').click();
+          await page.locator('#settingsSummary').click();
           await page.locator('#playersSelect').selectOption('1');
           await page.locator('#modeSelect').selectOption('classic');
           await page.keyboard.press('Escape');
@@ -351,7 +367,7 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           const errors = [];
           page.on('pageerror', (error) => errors.push(error.message));
           await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
-          assert.equal(await page.locator('#homeIntro').isVisible(), true);
+          assert.equal(await page.locator('#authPanel').isVisible(), true);
           await page.evaluate(() => {
             const reset = SnakeGame.prototype.reset;
             SnakeGame.prototype.reset = function (options) {
@@ -384,17 +400,20 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           assert.equal(await page.locator('#countdownNumber').textContent(), '1');
           await page.clock.runFor(1100);
           assert.equal(await page.locator('#countdownNumber').textContent(), '2');
-          await page.locator('#settingsSummary').click();
+          await page.locator('#helpSummary').click();
           await page.waitForFunction(() => document.querySelector('.game-shell').dataset.state === 'paused');
           await page.clock.runFor(5000);
           assert.equal(await page.evaluate(() => window.homeTestEngine.elapsedMs), 0);
-          await page.keyboard.press('Escape');
+          await page.keyboard.press('r');
+          assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
+          assert.equal(await page.locator('#countdownNumber').textContent(), '2');
+          await page.locator('#helpCloseButton').click();
           await page.locator('#playButton').click();
           assert.equal(await page.locator('#countdownNumber').textContent(), '2');
           await page.clock.runFor(2600);
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
           await page.locator('#homeButton').click();
-          assert.equal(await page.locator('#homeIntro').isVisible(), true);
+          assert.equal(await page.locator('#authPanel').isVisible(), true);
           await page.clock.runFor(5000);
           assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'ready');
           assert.equal(await page.evaluate(() => window.homeTestEngine.elapsedMs), 0);
@@ -414,13 +433,13 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
           await page.evaluate(() => {
             let score = 10;
             for (const mode of ['classic', 'obstacles', 'maze']) {
-              for (const type of ['solo', 'versus', 'ai']) localStorage.setItem(`snake-club-record-v3:${mode}:${type}`, JSON.stringify({ score: score++, name: `${mode}-${type}` }));
+              for (const type of ['solo', 'team', 'ai']) localStorage.setItem(`snake-club-record-v3:${mode}:${type}`, JSON.stringify({ score: score++, name: `${mode}-${type}` }));
             }
           });
           await page.reload();
           let score = 10;
           for (const [mode, title] of [['classic', 'Classic'], ['obstacles', 'Obstacles'], ['maze', 'Maze']]) {
-            for (const [players, type, label] of [['1', 'solo', 'Solo'], ['2', 'versus', 'Local versus'], ['ai', 'ai', 'AI Arena']]) {
+            for (const [players, type, label] of [['1', 'solo', 'Solo'], ['2', 'team', 'Local team'], ['ai', 'ai', 'AI Arena']]) {
               await page.locator('#settingsSummary').click();
               await page.locator('#modeSelect').selectOption(mode);
               await page.locator('#playersSelect').selectOption(players);
@@ -482,6 +501,74 @@ test('playing fits the viewport without document scrollbars', { skip: !chromium 
         }
         await page.reload();
         assert.equal(await page.locator('#mushroomStatus').getAttribute('hidden'), null);
+      } finally { await context.close(); }
+    });
+    await t.test('account choice, guest co-op team names and shared team records', async () => {
+      const context = await browser.newContext({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+      try {
+        const page = await createTestPage(context, { autoGuest: false });
+        const remoteAuth = [];
+        page.on('request', (request) => { if (request.url().startsWith('https://www.gstatic.com/firebasejs/')) remoteAuth.push(request.url()); });
+        await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+        assert.equal(await page.locator('#authChoices').isVisible(), true);
+        assert.equal(await page.locator('#playerEntry').isVisible(), false);
+        assert.equal(await page.locator('#playButton').isVisible(), false);
+        await page.locator('#googleLoginButton').click();
+        assert.match(await page.locator('#authStatus').textContent(), /OAuth configuration/);
+        assert.equal(await page.locator('#inviteFriendsButton').isVisible(), false);
+        await page.locator('#guestPlayButton').click();
+        await page.locator('#playerInput').fill('Alex');
+        await page.locator('#opponentInput').fill('Jamie');
+        await page.locator('#teamInput').fill('River Runners');
+        await page.evaluate(() => {
+          const tick = SnakeGame.prototype.tick; let index = 0;
+          SnakeGame.prototype.tick = function () { this.food = this.nextHead(this.players[index++ % 2]); window.teamTestEngine = this; return tick.call(this); };
+        });
+        await startPlaying(page); await page.clock.runFor(700);
+        assert.equal(await page.locator('#scoreLabel').textContent(), 'TEAM SCORE');
+        assert.match(await page.locator('#teamNameBanner').textContent(), /River Runners/);
+        const total = await page.evaluate(() => window.teamTestEngine.totalScore);
+        assert.ok(total > 0);
+        assert.equal(Number(await page.locator('#score').textContent()), total);
+        assert.equal(await page.locator('#bestName').textContent(), 'River Runners');
+        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('snake-club-record-v3:obstacles:team')));
+        assert.equal(saved.name, 'River Runners'); assert.equal(saved.score, total);
+        await page.reload();
+        assert.equal(await page.locator('#teamInput').inputValue(), 'River Runners');
+        assert.equal(await page.locator('#bestName').textContent(), 'River Runners');
+        assert.equal(await page.locator('#authChoices').isVisible(), true);
+        assert.deepEqual(remoteAuth, []);
+      } finally { await context.close(); }
+    });
+    await t.test('break auto-pause uses continuous foreground minutes and is silent when disabled', async () => {
+      const context = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+      try {
+        const page = await createTestPage(context);
+        await page.goto(pathToFileURL(join(__dirname, '..', 'index.html')).href);
+        await page.locator('#playerInput').fill('Alex');
+        await page.locator('#settingsSummary').click();
+        await page.locator('#playersSelect').selectOption('1');
+        await page.locator('#modeSelect').selectOption('classic');
+        await page.getByText('More options', { exact: true }).click();
+        await page.locator('#breakToggle').check();
+        await page.locator('#breakMinutes').fill('1');
+        await page.locator('#breakMinutes').press('Tab');
+        await page.keyboard.press('Escape');
+        await startPlaying(page); await page.clock.runFor(40); await page.clock.fastForward(61000);
+        assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
+        assert.equal(await page.locator('#overlayTitle').textContent(), 'Rest your eyes.');
+        await startPlaying(page); await page.clock.runFor(40); await page.clock.fastForward(31000);
+        assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
+        await page.clock.fastForward(31000);
+        assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'paused');
+        await page.locator('#settingsSummary').click();
+        await page.locator('#breakToggle').uncheck();
+        await page.keyboard.press('Escape');
+        await startPlaying(page); await page.clock.runFor(40); await page.clock.fastForward(180000);
+        assert.equal(await page.locator('.game-shell').getAttribute('data-state'), 'playing');
+        await page.reload();
+        assert.equal(await page.locator('#breakToggle').isChecked(), false);
+        assert.equal(await page.locator('#breakMinutes').inputValue(), '1');
       } finally { await context.close(); }
     });
     await t.test('simple settings, separate stats and saved backdrops', async () => {

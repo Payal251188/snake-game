@@ -11,12 +11,15 @@ const { SnakeItemsRenderer } = require('../snake-items-renderer.js');
 const { SnakeMotion } = require('../snake-motion.js');
 const { SnakeRewards } = require('../snake-rewards.js');
 const { SnakeBoard } = require('../snake-board.js');
+const { SnakeAuth } = require('../snake-auth.js');
+const { SnakeBreaks } = require('../snake-breaks.js');
 
 // Run the real UI controller with a small DOM/Canvas stand-in, no production test hooks.
 // Existing lifecycle cases use solo; playerCount: null exercises the production two-player default.
-function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer, autoCountdown = true } = {}) {
+function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupport = false, mediaError = null, playerCount = 1, reducedMotion = true, renderer = SnakeRenderer, autoCountdown = true, autoGuest = true, authModule = SnakeAuth, authConfig = {} } = {}) {
   const elements = new Map();
   const noop = () => {};
+  const openedWindows = [];
   let focused;
   let frameOffset = 0;
   let lastFrameTime = 0;
@@ -105,9 +108,11 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
     SnakeMotion,
     SnakeBoard,
     SnakeRewards,
+    SnakeAuth: authModule,
+    SnakeBreaks,
     SnakeGame: class extends SnakeGame { constructor(options) { super({ ...options, random: () => 0, ...(playerCount === null ? {} : { playerCount }) }); engine = this; } },
     document,
-    window: { AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => motionQuery, devicePixelRatio: 1,
+    window: { SNAKE_AUTH_CONFIG: authConfig, open: (...args) => { openedWindows.push(args); return { opener: null }; }, AudioContext: audioSupport ? FakeAudio : undefined, matchMedia: () => motionQuery, devicePixelRatio: 1,
       addEventListener: (name, callback) => { events[name] = handle(callback); } },
     localStorage: {
       getItem: (key) => { if (blocked) throw Error('Blocked'); return storage.get(key) ?? null; },
@@ -118,8 +123,9 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   };
   vm.runInNewContext(readFileSync(join(__dirname, '..', 'game.js'), 'utf8'), sandbox);
   if (!element('playerInput').value) element('playerInput').value = player;
+  if (autoGuest) element('guestPlayButton').listeners.click();
   return {
-    element, engine, events, document, documentEvents, storage, timers, audioStats,
+    element, engine, events, document, documentEvents, storage, timers, audioStats, openedWindows,
     focus: () => focused,
     frame: (time) => { lastFrameTime = frameOffset + time; frame(lastFrameTime); },
     click: (id) => element(id).listeners.click(),
@@ -129,6 +135,101 @@ function load({ storage = new Map(), blocked = false, player = 'Alex', audioSupp
   };
 }
 
+function mockedAuth() {
+  let notify; let user = null;
+  const publish = () => notify({ user, busy: false, message: '' });
+  return {
+    configured: () => true, inviteLink: SnakeAuth.inviteLink,
+    create({ onChange }) {
+      notify = onChange;
+      return {
+        initialize() { publish(); return Promise.resolve(true); },
+        signIn(provider) { user = { id: provider, provider, name: provider === 'facebook' ? 'Facebook Sam' : 'Google Jane' }; publish(); return Promise.resolve(true); },
+        signOut() { user = null; publish(); return Promise.resolve(true); },
+      };
+    },
+  };
+}
+
+test('home offers social or guest choice and asks who is playing only after guest selection', () => {
+  const g = load({ autoGuest: false });
+  assert.equal(g.element('authChoices').hidden, false);
+  assert.equal(g.element('playerEntry').hidden, true);
+  assert.equal(g.element('playButton').hidden, true);
+  g.key(' ');
+  assert.equal(g.state(), 'ready');
+  g.click('googleLoginButton');
+  assert.match(g.element('authStatus').textContent, /OAuth configuration/);
+  assert.equal(g.element('playerEntry').hidden, true);
+  g.click('guestPlayButton');
+  assert.equal(g.element('playerEntry').hidden, false);
+  assert.equal(g.element('playButton').hidden, false);
+  g.click('playButton');
+  assert.equal(g.state(), 'playing');
+});
+
+test('verified profile names and guest names share records without renaming the existing champion', () => {
+  const storage = new Map([['snake-club-record-v3:obstacles:solo', JSON.stringify({ score: 10, name: 'Guest champion' })]]);
+  const g = load({ storage, autoGuest: false, authModule: mockedAuth() });
+  g.click('googleLoginButton');
+  assert.equal(g.element('playerEntry').hidden, true);
+  assert.equal(g.element('inviteFriendsButton').hidden, true);
+  assert.equal(g.element('playerInput').value, 'Google Jane');
+  g.element('playerInput').value = 'Spoofed input';
+  g.click('playButton'); eat(g);
+  assert.equal(g.element('playerName').textContent, 'Google Jane');
+  assert.equal(g.element('bestName').textContent, 'Guest champion');
+  g.engine.score = 10;
+  g.engine.food = g.engine.nextHead(g.engine.players[0]);
+  g.frame(1000);
+  assert.equal(g.element('bestName').textContent, 'Google Jane');
+  g.click('settingsSignOutButton');
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.element('authChoices').hidden, false);
+  assert.equal(g.element('bestName').textContent, 'Google Jane');
+  g.click('guestPlayButton');
+  g.element('playerInput').value = 'Guest newcomer';
+  g.click('playButton'); eat(g);
+  assert.equal(g.element('bestName').textContent, 'Google Jane');
+});
+
+test('only Facebook sessions expose friend sharing, which pauses play and opens a user-confirmed dialog', () => {
+  const g = load({ autoGuest: false, authModule: mockedAuth(), authConfig: { facebookAppId: '12345678', inviteUrl: 'https://example.com/snake/' } });
+  g.click('facebookLoginButton');
+  assert.equal(g.element('inviteFriendsButton').hidden, false);
+  g.click('playButton');
+  g.click('inviteFriendsButton');
+  assert.equal(g.state(), 'paused');
+  assert.equal(g.openedWindows.length, 1);
+  assert.match(g.openedWindows[0][0], /^https:\/\/www.facebook.com\/dialog\/share/);
+  g.click('settingsSignOutButton');
+  assert.equal(g.element('inviteFriendsButton').hidden, true);
+});
+
+test('break auto-pause is configurable, repeats only after resuming, and stays silent when off', () => {
+  const g = load();
+  assert.equal(g.element('breakToggle').checked, false);
+  assert.equal(g.element('breakMinutes').value, '2');
+  g.element('breakToggle').checked = true;
+  g.element('breakMinutes').value = '1';
+  g.element('breakToggle').listeners.change();
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-breaks-v1')), { enabled: true, minutes: 1 });
+  g.click('playButton'); g.frame(0); g.frame(60100);
+  assert.equal(g.state(), 'paused');
+  assert.equal(g.element('overlayTitle').textContent, 'Rest your eyes.');
+  assert.match(g.element('overlayText').textContent, /1 uninterrupted minute/);
+  g.click('playButton'); g.frame(60200); g.frame(90000);
+  assert.equal(g.state(), 'playing');
+  g.frame(122500);
+  assert.equal(g.state(), 'paused');
+  g.element('breakToggle').checked = false; g.element('breakToggle').listeners.change();
+  g.click('playButton'); g.frame(123000); g.frame(523000);
+  assert.equal(g.state(), 'playing');
+  const restored = load({ storage: g.storage });
+  assert.equal(restored.element('breakToggle').checked, false);
+  assert.equal(restored.element('breakMinutes').value, '1');
+});
+
 test('golden food credits five points to its eater, updates records and keeps animal counts separate', () => {
   const g = load({ playerCount: null });
   g.element('opponentInput').value = 'Jamie'; g.click('playButton');
@@ -136,17 +237,17 @@ test('golden food credits five points to its eater, updates records and keeps an
   g.engine.goldenFood = { x: head.x - 1, y: head.y }; g.engine.goldenTicks = 50;
   const prey = g.engine.foodType;
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
-  assert.equal(g.element('score').textContent, '00');
-  assert.equal(g.element('opponentScore').textContent, '05');
+  assert.equal(g.element('score').textContent, '05');
+  assert.equal(g.element('playerTwoScore').textContent, '5 pts');
   assert.equal(g.element('best').textContent, '05');
-  assert.equal(g.element('bestName').textContent, 'Jamie');
+  assert.equal(g.element('bestName').textContent, 'Snake Squad');
   assert.equal(g.element('goldenCount').textContent, '1');
   assert.equal(g.element('totalEaten').textContent, '1');
   assert.equal(g.element('ratCount').textContent, '0');
   assert.equal(g.engine.foodType, prey);
   assert.match(g.element('friendMessage').textContent, /Golden catch! \+5 for Jamie/);
   assert.match(g.element('announcer').textContent, /Golden food! \+5 bonus points/);
-  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:versus')), { score: 5, name: 'Jamie' });
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:team')), { score: 5, name: 'Snake Squad' });
   g.click('restartButton');
   assert.equal(g.element('goldenCount').textContent, '0');
   assert.equal(g.engine.goldenFood, null);
@@ -159,12 +260,13 @@ test('simultaneous normal and golden catches display both scores and announce bo
   g.engine.food = { x: p1.snake[0].x + 1, y: p1.snake[0].y };
   g.engine.goldenFood = { x: p2.snake[0].x - 1, y: p2.snake[0].y }; g.engine.goldenTicks = 50;
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
-  assert.equal(g.element('score').textContent, '01');
-  assert.equal(g.element('opponentScore').textContent, '05');
+  assert.equal(g.element('score').textContent, '06');
+  assert.equal(g.element('playerOneScore').textContent, '1 pts');
+  assert.equal(g.element('playerTwoScore').textContent, '5 pts');
   assert.equal(g.element('totalEaten').textContent, '2');
   assert.equal(g.element('ratCount').textContent, '1');
   assert.equal(g.element('goldenCount').textContent, '1');
-  assert.equal(g.element('bestName').textContent, 'Jamie');
+  assert.equal(g.element('bestName').textContent, 'Snake Squad');
   assert.match(g.element('announcer').textContent, /Alex: Score 1/);
   assert.match(g.element('announcer').textContent, /Jamie: Golden food/);
 });
@@ -194,11 +296,11 @@ test('production defaults to two players, shows two identities, controls and ind
   assert.equal(g.element('playersSelect').value, '2');
   assert.equal(g.element('.game-shell').dataset.players, '2');
   assert.equal(g.element('opponentEntry').hidden, false);
-  assert.equal(g.element('opponentScoreGroup').hidden, false);
+  assert.equal(g.element('opponentScoreGroup').hidden, true);
   assert.equal(g.element('opponentInput').required, true);
   assert.equal(g.element('playerTwoControls').hidden, false);
   assert.match(g.element('overlayTitle').textContent, /Two snakes/);
-  assert.match(g.element('controlsHint').textContent, /Player 2: arrow keys/);
+  assert.match(g.element('controlsHint').textContent, /P2 uses arrow keys/);
   g.element('opponentInput').value = 'Jamie';
   g.click('playButton');
   assert.equal(g.state(), 'playing');
@@ -238,13 +340,14 @@ test('Player 2 catches update only their score, champion, cheer and combined cat
   const head = g.engine.players[1].snake[0];
   g.engine.food = { x: head.x - 1, y: head.y };
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
-  assert.equal(g.element('score').textContent, '00');
-  assert.equal(g.element('opponentScore').textContent, '01');
-  assert.equal(g.element('bestName').textContent, '<b>Jamie</b>');
+  assert.equal(g.element('score').textContent, '01');
+  assert.equal(g.engine.players[0].score, 0);
+  assert.equal(g.engine.players[1].score, 1);
+  assert.equal(g.element('bestName').textContent, 'Snake Squad');
   assert.equal(g.element('ratCount').textContent, '1');
   assert.equal(g.element('totalEaten').textContent, '1');
   assert.match(g.element('friendMessage').textContent, /Nice catch, <b>Jamie<\/b>/);
-  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:versus')), { score: 1, name: '<b>Jamie</b>' });
+  assert.deepEqual(JSON.parse(g.storage.get('snake-club-record-v3:obstacles:team')), { score: 1, name: 'Snake Squad' });
   assert.equal(load({ storage: g.storage, playerCount: null }).element('opponentInput').value, '<b>Jamie</b>');
 });
 
@@ -255,9 +358,9 @@ test('a crash announces the surviving winner and rematch resets both snakes', ()
   Object.assign(g.engine.players[1], { snake: [{ x: 15, y: 15 }], direction: 'right' });
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
   assert.equal(g.state(), 'over');
-  assert.equal(g.element('overlayTitle').textContent, 'Jamie wins!');
+  assert.equal(g.element('overlayTitle').textContent, 'Snake Squad · round over');
   assert.match(g.element('overlayText').textContent, /Alex hit a wall/);
-  assert.match(g.element('announcer').textContent, /Jamie wins/);
+  assert.match(g.element('announcer').textContent, /round over/);
   assert.equal(g.element('playersSelect').disabled, false);
   assert.equal(g.element('music').paused, true);
   g.click('playButton');
@@ -272,11 +375,11 @@ test('simultaneous head collisions announce a draw rather than favouring either 
   Object.assign(g.engine.players[1], { snake: [{ x: 12, y: 10 }], direction: 'left' });
   for (const time of [0, 200, 400, 600, 800]) g.frame(time);
   assert.equal(g.state(), 'over');
-  assert.match(g.element('overlayTitle').textContent, /draw/);
+  assert.match(g.element('overlayTitle').textContent, /round over/);
   assert.match(g.element('announcer').textContent, /head-on/);
 });
 
-test('Player 2 name is required in versus; Enter starts, and solo does not require it', () => {
+test('Player 2 name is required in team; Enter starts, and solo does not require it', () => {
   const g = load({ playerCount: null });
   g.element('opponentInput').value = '  '; g.click('playButton');
   assert.equal(g.state(), 'ready');
@@ -298,7 +401,7 @@ test('Player 2 name is required in versus; Enter starts, and solo does not requi
   assert.equal(load({ storage: solo.storage, playerCount: null }).engine.playerCount, 1);
 });
 
-test('versus survives blocked storage and corrupt preferences fall back to two players', () => {
+test('team survives blocked storage and corrupt preferences fall back to two players', () => {
   for (const saved of ['0', '3', 'NaN', '__proto__']) {
     const g = load({ playerCount: null, storage: new Map([['snake-club-players-v1', saved]]) });
     assert.equal(g.engine.playerCount, 2);
@@ -412,7 +515,7 @@ test('AI eliminations update the HUD and the last surviving human gets a rematch
   assert.ok(g.engine.players.every((player) => player.alive));
 });
 
-test('switching out of AI Arena restores local versus and original-food options', () => {
+test('switching out of AI Arena restores local team and original-food options', () => {
   const g = load({ playerCount: null });
   for (const selection of ['ai', '2']) {
     g.element('playersSelect').value = selection;
@@ -633,7 +736,7 @@ test('mushrooms reverse WASD, arrows, touch buttons and swipes consistently', ()
   assert.equal(g.engine.herbs.length, 0);
 });
 
-test('local versus applies reversed controls only to the affected player', () => {
+test('local team applies reversed controls only to the affected player', () => {
   const g = load({ playerCount: null, storage: new Map([['snake-club-mode-v1', 'classic']]) });
   g.click('playButton');
   eatMushroom(g);
@@ -925,14 +1028,14 @@ test('all nine map/play-type records load independently and select the correct c
   const storage = new Map();
   let score = 10;
   for (const mode of ['classic', 'obstacles', 'maze']) {
-    for (const type of ['solo', 'versus', 'ai']) {
+    for (const type of ['solo', 'team', 'ai']) {
       storage.set(`snake-club-record-v3:${mode}:${type}`, JSON.stringify({ score: score++, name: `${mode}-${type}` }));
     }
   }
   const g = load({ storage });
   score = 10;
   for (const mode of ['classic', 'obstacles', 'maze']) {
-    for (const [players, type, label] of [['1', 'solo', 'Solo'], ['2', 'versus', 'Local versus'], ['ai', 'ai', 'AI Arena']]) {
+    for (const [players, type, label] of [['1', 'solo', 'Solo'], ['2', 'team', 'Local team'], ['ai', 'ai', 'AI Arena']]) {
       selectRecordCategory(g, mode, players);
       assert.equal(g.element('best').textContent, String(score));
       assert.equal(g.element('bestDetailScore').textContent, String(score++));
@@ -953,13 +1056,14 @@ test('new human records persist separately for every map and play type across re
   const storage = new Map();
   let index = 0;
   for (const mode of ['classic', 'obstacles', 'maze']) {
-    for (const [players, type] of [['1', 'solo'], ['2', 'versus'], ['ai', 'ai']]) {
+    for (const [players, type] of [['1', 'solo'], ['2', 'team'], ['ai', 'ai']]) {
       const g = load({ storage });
       selectRecordCategory(g, mode, players);
       assert.equal(g.element('best').textContent, '00');
       const score = ++index * 4;
       const name = `Champion ${index}`;
       g.element('playerInput').value = name;
+      g.element('teamInput').value = name;
       g.click('playButton');
       g.engine.players[0].score = score - 1;
       g.engine.players.filter((player) => player.ai).forEach((player) => { player.score = 1000; });
@@ -1217,6 +1321,83 @@ test('snake rendering interpolates between ticks and does not rewind after pause
   g.click('playButton');
   g.frame(5000);
   assert.equal(positions.at(-1).x, frozen);
+});
+
+test('How to play opens from home, shares panel exclusivity, and closes with Escape or its close button', () => {
+  const g = load();
+  g.element('gameSettings').open = true;
+  g.element('gameHelp').open = true;
+  g.element('gameHelp').listeners.toggle();
+  assert.equal(g.state(), 'ready');
+  assert.equal(g.element('gameSettings').open, false);
+  assert.equal(g.focus(), 'helpPanel');
+  g.key('Escape');
+  assert.equal(g.element('gameHelp').open, false);
+  assert.equal(g.focus(), 'helpSummary');
+  g.element('gameHelp').open = true;
+  g.click('helpCloseButton');
+  assert.equal(g.element('gameHelp').open, false);
+  assert.equal(g.focus(), 'helpSummary');
+});
+
+test('reading instructions freezes play and countdown, and resume or Home closes the guide', () => {
+  const g = load(); g.click('playButton');
+  g.element('gameHelp').open = true;
+  g.element('gameHelp').listeners.toggle();
+  assert.equal(g.state(), 'paused');
+  const snapshot = JSON.stringify(g.engine);
+  g.frame(10000);
+  assert.equal(JSON.stringify(g.engine), snapshot);
+  g.click('playButton');
+  assert.equal(g.element('gameHelp').open, false);
+  assert.equal(g.state(), 'playing');
+  const countdown = load({ autoCountdown: false });
+  countdown.click('playButton');
+  countdown.frame(0); countdown.frame(200);
+  countdown.element('gameHelp').open = true;
+  countdown.element('gameHelp').listeners.toggle();
+  assert.equal(countdown.state(), 'paused');
+  countdown.frame(10000);
+  assert.equal(countdown.engine.elapsedMs, 0);
+  countdown.click('playButton');
+  assert.equal(countdown.state(), 'countdown');
+  assert.equal(countdown.element('gameHelp').open, false);
+  countdown.element('gameHelp').open = true;
+  countdown.click('homeButton');
+  assert.equal(countdown.element('gameHelp').open, false);
+  assert.equal(countdown.state(), 'ready');
+});
+
+test('How to play reports the actual selected category, level and slow-motion-adjusted pace', () => {
+  const g = load();
+  assert.match(g.element('helpCurrent').textContent, /Obstacles · Solo.*Level 1, 1.0×, 240 ms/);
+  g.click('playButton');
+  g.engine.eaten = { rat: 10, rabbit: 10, frog: 10 };
+  g.engine.slowUntil = 6000;
+  for (const time of [0, 200, 400, 600, 800]) g.frame(time);
+  assert.match(g.element('helpCurrent').textContent, /Level 2, 0.8×, 300 ms.*slow motion active/);
+});
+
+test('guide speed examples and item durations match the engine rules', () => {
+  const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
+  const guide = html.slice(html.indexOf('id="gameHelp"'), html.indexOf('id="gameStats"'));
+  assert.match(guide, /8 active seconds/);
+  assert.match(guide, /6 active seconds/);
+  assert.match(guide, /5 active seconds/);
+  assert.match(guide, /left ↔ right and up ↔ down/);
+  assert.match(guide, /Mushroom — Classic only/);
+  assert.match(guide, /AI catches, special items, and score bonuses never increase the level/);
+  const g = new SnakeGame();
+  for (let level = 1; level <= 5; level++) {
+    const total = (level - 1) * 10;
+    g.eaten = { rat: total, rabbit: total, frog: total };
+    const row = guide.match(new RegExp('<tr><th scope="row">' + level + '</th><td>[^<]+</td><td>([^<]+)</td><td>≈?(\\d+) ms</td></tr>'));
+    assert.ok(row, 'documented speed row exists for level ' + level);
+    assert.equal(row[1], g.speedMultiplier.toFixed(1) + '×');
+    assert.equal(Number(row[2]), Math.round(g.interval));
+  }
+  g.eaten = { rat: 1000, rabbit: 1000, frog: 1000 };
+  assert.equal(g.interval, 40);
 });
 
 test('Settings and Stats are separate and opening either pauses the game', () => {

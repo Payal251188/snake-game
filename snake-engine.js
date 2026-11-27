@@ -14,17 +14,17 @@
   const animalActions = { rat: { delay: 1800, duration: 100 }, rabbit: { delay: 2400, duration: 160 }, frog: { delay: 3600, duration: 200 } };
 
   class SnakeGame {
-    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0, animatedFood = false, powerupsEnabled = false, combosEnabled = false } = {}) {
+    constructor({ columns = 24, rows = 20, random = Math.random, mode = 'classic', playerCount = 1, aiCount = 0, foodCount = 1, mushroomCount = 0, animatedFood = false, powerupsEnabled = false, combosEnabled = false, teamMode = false } = {}) {
       if (!Number.isInteger(columns) || !Number.isInteger(rows) || columns < 6 || rows < 6) {
         throw new RangeError('The board must be at least 6 × 6 cells.');
       }
       this.columns = columns;
       this.rows = rows;
       this.random = random;
-      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount, animatedFood, powerupsEnabled, combosEnabled });
+      this.reset({ mode, playerCount, aiCount, foodCount, mushroomCount, animatedFood, powerupsEnabled, combosEnabled, teamMode });
     }
 
-    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount, animatedFood = this.animatedFood, powerupsEnabled = this.powerupsEnabled, combosEnabled = this.combosEnabled } = {}) {
+    reset({ mode = this.mode, playerCount = this.playerCount, aiCount = this.aiCount, foodCount = this.foodCount, mushroomCount = this.mushroomCount, animatedFood = this.animatedFood, powerupsEnabled = this.powerupsEnabled, combosEnabled = this.combosEnabled, teamMode = this.teamMode } = {}) {
       if (!['classic', 'obstacles', 'maze'].includes(mode)) throw new RangeError('Unknown game mode.');
       if (![1, 2].includes(playerCount)) throw new RangeError('Choose one or two players.');
       if (!Number.isInteger(aiCount) || aiCount < 0 || aiCount > 3 || (aiCount > 0 && playerCount !== 1)) throw new RangeError('AI Arena supports one human and up to three bots.');
@@ -38,6 +38,7 @@
       this.animatedFood = Boolean(animatedFood);
       this.powerupsEnabled = Boolean(powerupsEnabled);
       this.combosEnabled = Boolean(combosEnabled);
+      this.teamMode = Boolean(teamMode);
       this.powerups = [];
       this.nextPowerupAt = 7000;
       this.slowUntil = 0;
@@ -104,6 +105,7 @@
     get powerupsCaught() { return this.players.reduce((sum, player) => sum + player.powerupsCollected, 0); }
     get totalCatches() { return this.preyCaught + this.goldenCaught + this.mushroomCaught + this.herbsCaught + this.powerupsCaught; }
     get wraps() { return this.mode === 'classic'; }
+    get isTeam() { return this.teamMode && this.playerCount === 2 && this.aiCount === 0; }
     get livingPlayers() { return this.players.filter((player) => player.alive); }
     get foods() {
       return [...(this.food ? [{ ...this.food, type: this.foodType }] : []), ...this.extraFoods];
@@ -400,7 +402,7 @@
         this.status = 'over';
         this.endReason = 'collision';
         const survivors = this.players.map((player, index) => player.collision ? -1 : index).filter((index) => index !== -1);
-        this.winner = this.playerCount === 2 && survivors.length === 1 ? survivors[0] : null;
+        this.winner = !this.isTeam && this.playerCount === 2 && survivors.length === 1 ? survivors[0] : null;
         return 'lost';
       }
       this.players.forEach((player, index) => {
@@ -488,7 +490,7 @@
         if (!this.foods.length && !this.goldenFood && !this.mushrooms.length && !this.herbs.length && !this.powerups.length) {
           this.status = 'won';
           this.endReason = 'filled';
-          this.winner = this.scoreWinner();
+          this.winner = this.isTeam ? null : this.scoreWinner();
           return 'won';
         }
         return 'ate';
